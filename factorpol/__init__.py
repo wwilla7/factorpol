@@ -1,4 +1,4 @@
-"""A Fast Atom-Centered Typed Isotropic Ready-to-use Polarizable Electrostatic Model. Factor-Pol Model"""
+"""A short description of the project (less than one line)."""
 
 # Add imports here
 from .factorpol import *
