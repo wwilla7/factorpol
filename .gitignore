@@ -64,6 +64,7 @@ instance/
 
 # Sphinx documentation
 docs/_build/
+docs/autosummary/
 
 # PyBuilder
 target/
@@ -107,3 +108,9 @@ ENV/
 
 # In-tree generated files
 */_version.py
+
+
+# under development
+.idea/*
+factorpol/alphas_training.py
+factorpol/data/*

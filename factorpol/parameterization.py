@@ -1,3 +1,6 @@
+"""This module is for parameterizing small molecules with typed polarizabilities, AM1-BCC-dPol partial charges,
+    and bonded parameters of Open Force Field - Sage or AMBER GAFF"""
+
 import os
 import shutil
 
@@ -24,6 +27,18 @@ from enum import Enum
 
 
 def add_force(parent, Name, TypeName, c0, alpha):
+    """
+    Create a MPID Force for OpenMM to handle induced dipoles.
+
+    :param parent: Parent `ForceField` xml tree
+    :param Name: Atom name
+    :param TypeName: Atom type
+    :param c0: Permanent partial charge
+    :param alpha: Typed polarizability parameter
+    :return: ForceField xml parent tree
+    """
+
+    # Set Thole
     if alpha == 0.0:
         thole = 0.0
     else:
@@ -46,6 +61,7 @@ def add_force(parent, Name, TypeName, c0, alpha):
 
 def parameterize_molecule(smile: str, ff_name: str, polarizability_type: Enum, output_path: str):
     """
+    Parameterize a molecule with force field of choice
 
     :param smile: SMILES string for molecule to parameterize
     :param ff_name: sage or gaff
@@ -142,6 +158,7 @@ def parameterize_molecule(smile: str, ff_name: str, polarizability_type: Enum, o
                 alpha=alphas[idx],
             )
 
+    # organize XML file
     tree = etree.ElementTree(root)
     xml = etree.tostring(tree, encoding="utf-8", pretty_print=True).decode("utf-8")
     xml = xml.replace("><", ">\n\t<")
@@ -159,7 +176,12 @@ def parameterize_molecule(smile: str, ff_name: str, polarizability_type: Enum, o
     return mu
 
 
-def _calculate_dipoles(offmol):
+def _calculate_dipoles(offmol: off_Molecule):
+    """
+    Calculate molecular dipole moment for a parameterized molecule (with partial charges)
+    :param offmol: OpenFF Molecule Object
+    :return: molecular dipole moment
+    """
     charge = offmol.partial_charges.m_as("elementary_charge")
     geometry = offmol.conformers[0].m_as("angstrom")
     dipole = Q_(
