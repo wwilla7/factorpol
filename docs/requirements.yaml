@@ -1,12 +1,18 @@
-name: docs
+name: factorpol
 channels:
+  - openeye
+  - anaconda
+  - psi4
+  - conda-forge
 dependencies:
-    # Base depends
-  - python
-  - pip
-
-
-
-    # Pip-only installs
-  #- pip:
-
+  - psi4
+  - cudatoolkit=11.3.1=h2bc3f7f_2
+  - openeye-toolkit
+  - openff-recharge
+  - openff-toolkit
+  - openmm=8.0.0
+  - openmmforcefields=0.11.2
+  - pip:
+    - ambertools
+    - ray
+    - sqlalchemy-utils
