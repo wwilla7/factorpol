@@ -1,4 +1,4 @@
-name: factorpol
+name: test
 channels:
   - openeye
   - anaconda
@@ -6,12 +6,12 @@ channels:
   - conda-forge
 dependencies:
   - psi4
-  - cudatoolkit=11
+  - cudatoolkit
   - openeye-toolkits
   - openff-recharge
   - openff-toolkit
   - openmm
-  - openmmforcefields=0.11.2
+  - openmmforcefields
   - pip:
     - ambertools
     - ray
