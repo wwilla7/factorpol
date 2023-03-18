@@ -110,7 +110,9 @@ ENV/
 */_version.py
 
 
-# under development
+# private 
 .idea/*
-factorpol/alphas_training.py
-factorpol/data/*
+.gitignore
+factorpol/data/alphas_elements.csv
+factorpol/data/alphas_smirnoff.csv
+factorpol/data/bcc_dPol.csv

@@ -11,7 +11,7 @@ from typing import List
 import numpy as np
 import pint
 from openff.recharge.esp.storage import MoleculeESPRecord
-from openff.toolkit.topology import Molecule
+from openff.toolkit import Molecule, ForceField
 from openff.units import unit
 from scipy.spatial import distance
 
@@ -22,7 +22,6 @@ from factorpol.utilities import (
     pair_equivalent,
     PolarizabilityType,
     smirnoff_labels,
-    ff
 )
 
 ureg = pint.UnitRegistry()
@@ -35,6 +34,7 @@ class ChargeTrainer:
         self,
         record: MoleculeESPRecord,
         polarizability_type: Enum,
+        ff: ForceField,
     ):
         """
         A class to generate QM ESPs derived partial charges in the context of direct polarization.
