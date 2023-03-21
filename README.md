@@ -11,6 +11,9 @@ A Fast Atom-Centered Typed Isotropic Ready-to-use Polarizable Electrostatic Mode
 We present an efficient polarizable electrostatic model using direct polarization[1], SMIRNOFF[2] typed polarizabilities, and a new AM1-BCC[3,4]-style charge model for improved electrostatics in molecular dynamics (MD) simulations. 
 
 
+This toolkit is currently under heavy development. Latest development for optimization of polarizability lives at branch `alphas`. Latest development for generating AM1BCCdPol partial charges lives at branch `charge`.
+
+
 References:
 
 [1] Straatsma, T.; McCammon, J. Molecular Simulation 1990, 5, 181–192.
