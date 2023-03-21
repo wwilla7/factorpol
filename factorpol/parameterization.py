@@ -76,9 +76,11 @@ def parameterize_molecule(smile: str, ff_name: str, polarizability_type: Enum, o
     symbol = qcmol.symbols
 
     if os.path.exists(output_path):
-        shutil.rmtree(output_path)
-        print("Output path exists. Remove everything.")
-    os.makedirs(output_path)
+        pass
+        # shutil.rmtree(output_path)
+        # print("Output path exists. Remove everything.")
+    else:
+        os.makedirs(output_path)
 
     # Create Openmm system
     forcefield = ForceField()
@@ -121,7 +123,7 @@ def parameterize_molecule(smile: str, ff_name: str, polarizability_type: Enum, o
     np.savetxt(os.path.join(output_path, "am1bcc.dat"), charges, fmt="%10.7f")
 
     charges = np.round(
-        BccTrainer.generate_charges(smile, recharge_collection).reshape(-1), 7
+        BccTrainer.generate_charges(off_mol, recharge_collection).reshape(-1), 7
     )
     np.savetxt(os.path.join(output_path, "am1bccdPol.dat"), charges, fmt="%10.7f")
 
