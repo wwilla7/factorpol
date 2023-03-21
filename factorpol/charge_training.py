@@ -34,6 +34,7 @@ class ChargeTrainer:
         self,
         record: MoleculeESPRecord,
         polarizability_type: Enum,
+        offmol: Molecule,
         ff: ForceField,
     ):
         """
@@ -78,12 +79,15 @@ class ChargeTrainer:
             [self.natoms, self.natoms, 1]
         )  # r_{jk}^3
 
-        tmp_mol = Molecule.from_smiles(self.tagged_smiles)
-        smiles = tmp_mol.to_smiles(explicit_hydrogens=False)
-        offmol = Molecule.from_smiles(smiles)
-        offmol.generate_conformers(n_conformers=1)
-        offmol.conformers.clear()
-        offmol.conformers.append(self.atomcrds * unit.angstrom)
+        # tmp_mol = Molecule.from_smiles(self.tagged_smiles)
+        # smiles = tmp_mol.to_smiles(explicit_hydrogens=False)
+        # offmol = Molecule.from_smiles(smiles)
+        if offmol.conformers == None:
+            offmol.generate_conformers(n_conformers=1)
+            offmol.conformers.clear()
+            offmol.conformers.append(self.atomcrds * unit.angstrom)
+        else:
+            pass
         self.offmol = copy.deepcopy(offmol)
         self.rdmol = self.offmol.to_rdkit()
         self.qcmol = self.offmol.to_qcschema()
@@ -173,7 +177,7 @@ class ChargeTrainer:
             raise NotImplementedError
 
         ret = BccTrainer.generate_charges(
-            self.tagged_smiles, this_bcc_collection.recharge_collection
+            self.offmol, this_bcc_collection.recharge_collection
         )
         return Q_(ret.reshape(-1), ureg.elementary_charge)
 

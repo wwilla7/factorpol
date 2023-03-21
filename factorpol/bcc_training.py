@@ -86,12 +86,15 @@ class BccTrainer:
         ]
 
     @classmethod
-    def generate_charges(cls, smiles, bcc_collection):
-        offmol = Molecule.from_smiles(smiles)
-        conformers = ConformerGenerator.generate(
-            offmol,
-            ConformerSettings(method="omega", sampling_mode="sparse", max_conformers=1),
-        )
+    def generate_charges(cls, offmol, bcc_collection):
+        # offmol = Molecule.from_smiles(smiles)
+        if offmol.conformers == None:
+            conformers = ConformerGenerator.generate(
+                offmol,
+                ConformerSettings(method="omega", sampling_mode="sparse", max_conformers=1),
+            )
+        else:
+            conformers = offmol.conformers
         am1 = QCChargeGenerator.generate(
             offmol,
             conformers,
