@@ -4,6 +4,7 @@ channels:
   - anaconda
   - psi4
   - conda-forge
+  - defaults
 dependencies:
   - psi4
   - cudatoolkit
