@@ -28,23 +28,22 @@ ureg = pint.UnitRegistry()
 Q_ = ureg.Quantity
 
 
-
 class ChargeTrainer:
     def __init__(
         self,
         record: MoleculeESPRecord,
         polarizability_type: Enum,
-        offmol: Molecule,
-        ff: ForceField,
+        ff: ForceField = ForceField("openff-2.0.0.offxml"),
     ):
         """
         A class to generate QM ESPs derived partial charges in the context of direct polarization.
-        
+
         Notes: this class use atomic unit for all calculations.
-        
-        :param record: `openff.recharge.esp.storage.MoleculeESPRecord` that contains all QM reference data 
+
+        :param record: `openff.recharge.esp.storage.MoleculeESPRecord` that contains all QM reference data
                         for generating QM ESPs derived partial charges
         :param polarizability_type: The polarizability typing scheme of choice.
+        :param ff: An OpenFF force field object to create smirnoff patterns
         """
         self.record = record
         self.polarizability_type = polarizability_type
@@ -381,7 +380,9 @@ class ChargeTrainer:
         efield = self._calc_efield(partial_charges)
         alphas = copy.deepcopy(self.alphas)
         alphas = np.array(alphas).reshape(-1)
-        induced_dipoles = np.linalg.norm(np.multiply(efield, alphas), axis=-1).reshape(-1)
+        induced_dipoles = np.linalg.norm(np.multiply(efield, alphas), axis=-1).reshape(
+            -1
+        )
         aqs = qs.reshape(-1) + induced_dipoles
         ret = Q_(
             np.linalg.norm(
