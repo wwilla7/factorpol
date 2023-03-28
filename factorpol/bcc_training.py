@@ -96,9 +96,9 @@ class BccTrainer:
                 ConformerSettings(method="omega", sampling_mode="sparse", max_conformers=1),
             )
         am1 = QCChargeGenerator.generate(
-            offmol,
-            conformers,
-            QCChargeSettings(theory="am1", sysmmetrize=False, optimize=False),
+            molecule=offmol,
+            conformers=conformers,
+            settings=QCChargeSettings(theory="am1", sysmmetrize=False, optimize=False),
         )
         assignment_matrix = BCCGenerator.build_assignment_matrix(offmol, bcc_collection)
         pbccs = BCCGenerator.apply_assignment_matrix(
