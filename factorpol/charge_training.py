@@ -81,7 +81,7 @@ class ChargeTrainer:
         offmol = Molecule.from_mapped_smiles(self.tagged_smiles)
         offmol.generate_conformers(n_conformers=1)
         offmol.conformers.clear()
-        offmol.conformers.append(self.atomcrds * unit.angstrom)
+        offmol.conformers.append(self.atomcrds * unit.bohr)
         self.offmol = copy.deepcopy(offmol)
         self.rdmol = self.offmol.to_rdkit()
         self.qcmol = self.offmol.to_qcschema()
