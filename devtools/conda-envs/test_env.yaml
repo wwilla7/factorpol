@@ -1,20 +1,23 @@
 name: test
 channels:
-
+  - openeye
+  - anaconda
+  - psi4
   - conda-forge
-
   - defaults
 dependencies:
-    # Base depends
-  - python
-  - pip
-
-    # Testing
-  - pytest
-  - pytest-cov
-  - codecov
-
-    # Pip-only installs
-  #- pip:
-  #  - codecov
-
+  - psi4
+  - openeye-toolkits
+  - openff-recharge
+  - openff-toolkit
+  - openmm
+  - openmmforcefields
+  - pint
+  - lxml
+  - parmed
+  - numpy
+  - scipy
+  - pip:
+    - ambertools
+    - ray
+    - sqlalchemy-utils

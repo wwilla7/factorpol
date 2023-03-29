@@ -1,19 +1,12 @@
 name: test
 channels:
-  - openeye
-  - anaconda
-  - psi4
   - conda-forge
-  - defaults
 dependencies:
-  - psi4
-  - cudatoolkit
-  - openeye-toolkits
-  - openff-recharge
-  - openff-toolkit
-  - openmm
-  - openmmforcefields
-  - pip:
-    - ambertools
-    - ray
-    - sqlalchemy-utils
+      # Base depends
+  - python
+  - pip
+  - scipy
+  - numpy
+  - pint
+  - sphinx
+  - sphinx_rtd_theme
