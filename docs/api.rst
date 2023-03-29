@@ -1,15 +1,12 @@
 API Documentation
 =================
 
-.. autosummary::
-   :toctree: autosummary
-   :recursive:
 
-
-   factorpol.charge_training
-   factorpol.bcc_training
-   factorpol.parameterization
-   factorpol.qm_worker
-   factorpol.utilities
-   
-.. factorpol.alphas_training
+.. autoclass:: factorpol.alphas_training.AlphasTrainer
+   :members:
+.. autoclass:: factorpol.bcc_training.BccTrainer
+   :members:
+.. autoclass:: factorpol.charge_training.ChargeTrainer
+   :members:
+.. autoclass:: factorpol.qm_worker.QWorker
+   :members:

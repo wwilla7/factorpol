@@ -1,4 +1,4 @@
-name: test
+name: docs
 channels:
   - conda-forge
 dependencies:
@@ -10,3 +10,14 @@ dependencies:
   - pint
   - sphinx
   - sphinx_rtd_theme
+  - openff-toolkit-base >=0.11
+  - openff-recharge
+  - openff-units
+  - sqlalchemy
+  - parmed
+  - lxml
+  - openmmforcefields
+  - ambertools
+  - pip:
+      - sqlalchemy_utils
+      - ray

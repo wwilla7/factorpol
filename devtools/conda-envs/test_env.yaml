@@ -1,24 +1,15 @@
 name: test
 channels:
   - openeye
-  - psi4
   - conda-forge
   - defaults
 dependencies:
   - python >=3.8
   - pip
-  - psi4
-  - openeye-toolkits
-  - openff-recharge
   - openff-toolkit
-  - openmm
-  - openmmforcefields
   - pint
-  - lxml
-  - parmed
   - numpy
   - scipy
-  - sqlalchemy
         # Testing
   - pytest
   - pytest-cov
