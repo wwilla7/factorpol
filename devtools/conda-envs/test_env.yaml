@@ -1,19 +1,20 @@
 name: test
 channels:
-  - openeye
+
   - conda-forge
+
   - defaults
 dependencies:
-  - python >=3.8
+    # Base depends
+  - python
   - pip
-  - openff-toolkit
-  - pint
-  - numpy
-  - scipy
-        # Testing
+
+    # Testing
   - pytest
   - pytest-cov
   - codecov
-  - pip:
-    - ray
-    - sqlalchemy-utils
+
+    # Pip-only installs
+  #- pip:
+  #  - codecov
+
