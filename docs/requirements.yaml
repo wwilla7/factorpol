@@ -1,12 +1,19 @@
-name: docs
+name: test
 channels:
+  - openeye
+  - anaconda
+  - psi4
+  - conda-forge
+  - defaults
 dependencies:
-    # Base depends
-  - python
-  - pip
-
-
-
-    # Pip-only installs
-  #- pip:
-
+  - psi4
+  - cudatoolkit
+  - openeye-toolkits
+  - openff-recharge
+  - openff-toolkit
+  - openmm
+  - openmmforcefields
+  - pip:
+    - ambertools
+    - ray
+    - sqlalchemy-utils

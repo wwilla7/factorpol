@@ -38,7 +38,7 @@ ff = ForceField("openff-2.0.0.offxml")
 
 def pair_equivalent(pattern: List) -> ndarray:
     """
-    :rtype: object
+    A function to pair related patterns together
     :param pattern: A list of patterns that needs to be paired
     :return: A list of paired patterns
     """
@@ -60,6 +60,7 @@ def pair_equivalent(pattern: List) -> ndarray:
 
 def canonical_ranking(rdmol: Chem.rdchem.Mol) -> List:
     """
+    A function to calculte canonical ranking for forced symmetry using RDKit
     :param rdmol: RDK molecule
     :return: A list of atomic features based the canonical ranking
     """
@@ -69,6 +70,7 @@ def canonical_ranking(rdmol: Chem.rdchem.Mol) -> List:
 
 def smirnoff_labels(offmol: Molecule, off: ForceField) -> List:
     """
+    A function to label OpenFF molecule with input force field files
     :param offmol: OpenFF Molecule
     :param off: Open Force Field force field
     :return: a list smirks pattern by van der Waals parameter types
@@ -88,6 +90,7 @@ def flatten_a_list(nest_list: List) -> List:
 
 def coulomb_scaling(rdmol: Chem.rdchem.Mol, coulomb14scale: float = 0.5) -> ndarray:
     """
+    A function to create scaling matrix for coulomb scaling
     :param rdmol: RDKit Molecule
     :param coulomb14scale: The scaling factor of coulomb interactions, default is 0.5
     :return: A scaling_matrix matrix used for computing electric field by fixed point charges
@@ -159,6 +162,13 @@ class StorageHandler:
             url: str = "postgresql://localhost:",
             local_path: str = os.path.join(os.getcwd(), "tmp_storage"),
     ):
+        """
+        A function to handle Postgres Data Storage
+
+        :param port: Postgres server port, default 5432
+        :param url: Postgres URL path
+        :param local_path: Local directory to dump a temporary sqlite data file default tmp_storage
+        """
         self.port = port
         self.url = url
         self.postgres_prefix = f"{self.url}{self.port}"
@@ -173,6 +183,10 @@ class StorageHandler:
             os.makedirs(self.local_path)
 
     def start(self):
+        """
+        Start a server
+        :return: error message, output message
+        """
 
         _ = subprocess.Popen(
             ["initdb", f"{self.local_path}"],
@@ -207,6 +221,10 @@ class StorageHandler:
         return self.start_err, self.start_out
 
     def stop(self):
+        """
+        Stop a server
+        :return: error message, output message
+        """
 
         ret = subprocess.Popen(
             [
@@ -225,6 +243,7 @@ class StorageHandler:
 
     def session(self, database_name: str) -> session.Session:
         """
+        Create a session to handle data query
         :param database_name: Name of database.
         :return: Return a session to interact with the database
         """
@@ -244,7 +263,13 @@ class StorageHandler:
 
 def calc_rrmse(calc, ref):
     """
-    $$RRMSE=\sqrt{\frac{1}{N}\frac{\sum\limits_{i=1}^{N}(V_{qm,i}-V_{calc, i})^2}{\sum\limits_{i=1}^{N}(V_{qm, i})^2}}$$
+    Relative root mean squared error, objective function, unit less
+    $RRMSE=\sqrt{\frac{1}{N}\frac{\sum\limits_{i=1}^{N}(V_{qm,i}-V_{calc, i})^2}{\sum\limits_{i=1}^{N}(V_{qm, i})^2}}$
+    :param calc: Calculation results
+    :param ref: Reference data
+    :return: RRMSE
+    """
+    """
     unit less
     """
     ndata = len(calc)
@@ -254,10 +279,11 @@ def calc_rrmse(calc, ref):
 
 def calc_rmse(calc, ref):
     """
-    :param calc:
-    :param ref:
-    :return:
-    $$RMSE=\sqrt{\frac{1}{N}\sum\limits_{i=1}^{N}(V_{qm,i}-V_{calc, i})^2}$$
+    Relarive mean squared error
+    $RMSE=\sqrt{\frac{1}{N}\sum\limits_{i=1}^{N}(V_{qm,i}-V_{calc, i})^2}$
+    :param calc: Calculation results
+    :param ref: Reference data
+    :return: RMSE
     """
     ret = np.sqrt(np.mean(np.square(calc - ref)))
     return ret
@@ -268,6 +294,13 @@ def retrieve_records(
         dataset: List = [],
         sqlite_path: str = os.path.join(os.getcwd(), "tmp.sqlite"),
 ) -> Tuple[List, List]:
+    """
+    Retrieve QM records from Postgres database and create openff.recharge MoleculeESPRecords
+    :param my_session: sqlalchemy session
+    :param dataset: a list of data
+    :param sqlite_path: A path to store temporary sqlite data
+    :return:
+    """
     if os.path.exists(sqlite_path):
         os.remove(sqlite_path)
     else:
@@ -298,8 +331,12 @@ class PolarizabilityType(Enum):
 
 @dataclass
 class Polarizability:
+    """
+    A dataclass to read/write polarizability parameters for parameterization
+    """
     data_source: str
     typing_scheme: Enum
+
 
     @property
     def data(self) -> pd.core.frame.DataFrame:
@@ -333,6 +370,9 @@ SmirnoffPol = Polarizability(
 
 @dataclass
 class BondChargeCorrections:
+    """
+    A dataclass to read/write bond charge correction parameters for generating charges
+    """
     data_source: str
     polarizability_type: enum.Enum
 

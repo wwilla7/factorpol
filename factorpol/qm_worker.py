@@ -26,7 +26,7 @@ from sqlalchemy.orm.session import Session
 
 @ray.remote
 def _worker(
-    smiles: str,
+    mol: str,
     method: str,
     basis: str,
     wd: str,
@@ -37,10 +37,9 @@ def _worker(
     external_field: ndarray = np.array([0.0, 0.0, 0.0]),
 ) -> List[MoleculeESPRecord]:
     qc_data_records = []
-    print(smiles)
     os.makedirs(wd, exist_ok=False)
 
-    off_mol = Molecule.from_smiles(smiles)
+    off_mol = Molecule.from_file(mol)
 
     qc_data_settings = ESPSettings(
         method=method,
@@ -50,10 +49,14 @@ def _worker(
         ),
         perturb_dipole=external_field,
     )
+    if off_mol.conformers == None:
 
-    conformers = ConformerGenerator.generate(
-        off_mol, ConformerSettings(max_conformers=n_conf)
-    )
+        conformers = ConformerGenerator.generate(
+            off_mol, ConformerSettings(max_conformers=n_conf)
+        )
+
+    else:
+        conformers = off_mol.conformers
 
     for idx, conformer in enumerate(conformers):
 
@@ -104,7 +107,7 @@ class QWorker:
 
         workers = [
             _worker.remote(
-                smiles=smi,
+                mol=mol,
                 method=method,
                 basis=basis,
                 wd=os.path.join(wd, f"mol{idx:02d}"),
@@ -114,7 +117,7 @@ class QWorker:
                 msk_layers=msk_layers,
                 external_field=external_field,
             )
-            for idx, smi in enumerate(dataset)
+            for idx, mol in enumerate(dataset)
         ]
         ret = ray.get(workers)
         self.records.append(ret)

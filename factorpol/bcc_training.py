@@ -22,6 +22,12 @@ aromaticity_model = original_bcc_collections.aromaticity_model
 
 
 def find_bccs(smiles: str, reference_collections: BCCCollection) -> List:
+    """
+    A function to find bond charge correction types using `openff-recharge`.
+    :param smiles: Smile string of the molecule
+    :param reference_collections: Reference collection from openff-recharge
+    :return: BCC types of this molecule
+    """
     offmol = Molecule.from_smiles(smiles)
     parameters = reference_collections.parameters
     aromaticity_model = reference_collections.aromaticity_model
@@ -36,6 +42,14 @@ def find_bccs(smiles: str, reference_collections: BCCCollection) -> List:
 def _calc_polarization(
     worker: ChargeTrainer, alphas: Enum, coulomb14scale: float = 0.5
 ) -> np.ndarray:
+    """
+    A function to calculate MM ESPs in the context of direct polarization
+    Also update parameters for optimization if needed.
+    :param worker:
+    :param alphas: polarizability parameters
+    :param coulomb14scale: Coulomb 14 scaling factor
+    :return:
+    """
     offmol = worker.offmol
     am1 = QCChargeGenerator.generate(
         offmol, offmol.conformers, QCChargeSettings(theory="am1")
@@ -55,6 +69,12 @@ class BccTrainer:
         reference_collection: BCCCollection,
         polarizability_type: Enum,
     ):
+        """
+        A class to train bond charge correction parameters in the context of typed polarizability
+        :param training_set: Input training set
+        :param reference_collection: Reference BCC collection
+        :param polarizability_type: Polarizability typing scheme
+        """
         self.bcc_collection_to_train = None
         self.bcc_parameters_to_train = None
         self.training_set = training_set
@@ -66,16 +86,19 @@ class BccTrainer:
         ]
 
     @classmethod
-    def generate_charges(cls, smiles, bcc_collection):
-        offmol = Molecule.from_smiles(smiles)
-        conformers = ConformerGenerator.generate(
-            offmol,
-            ConformerSettings(method="omega", sampling_mode="sparse", max_conformers=1),
-        )
+    def generate_charges(cls, offmol, bcc_collection):
+        # offmol = Molecule.from_smiles(smiles)
+        if offmol.conformers:
+            conformers = offmol.conformers
+        else:
+            conformers = ConformerGenerator.generate(
+                offmol,
+                ConformerSettings(method="omega", sampling_mode="sparse", max_conformers=1),
+            )
         am1 = QCChargeGenerator.generate(
-            offmol,
-            conformers,
-            QCChargeSettings(theory="am1", sysmmetrize=False, optimize=False),
+            molecule=offmol,
+            conformers=conformers,
+            settings=QCChargeSettings(theory="am1", sysmmetrize=False, optimize=False),
         )
         assignment_matrix = BCCGenerator.build_assignment_matrix(offmol, bcc_collection)
         pbccs = BCCGenerator.apply_assignment_matrix(
