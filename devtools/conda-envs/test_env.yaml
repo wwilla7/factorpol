@@ -1,12 +1,11 @@
 name: test
 channels:
   - openeye
-  - anaconda
   - psi4
   - conda-forge
   - defaults
 dependencies:
-  - python
+  - python >=3.8
   - pip
   - psi4
   - openeye-toolkits
@@ -19,11 +18,11 @@ dependencies:
   - parmed
   - numpy
   - scipy
+  - sqlalchemy
         # Testing
   - pytest
   - pytest-cov
   - codecov
   - pip:
-    - ambertools
     - ray
     - sqlalchemy-utils
