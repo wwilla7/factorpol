@@ -6,16 +6,21 @@
 Welcome to Factor-Pol's documentation!
 =========================================================
 
-Contents
-===========
+.. toctree::
+   :maxdepth: 3
+
+   getting_started
+   installation
+   examples
+
+Modules Documentation
+======================
 
 .. toctree::
    :maxdepth: 5
 
-   getting_started
+   modules
    api
-
-
 
 Indices and tables
 ==================
@@ -23,18 +28,3 @@ Indices and tables
 * :ref:`genindex`
 * :ref:`modindex`
 * :ref:`search`
-
-
-Modules
-===================
-
-.. autosummary::
-   :toctree: autosummary
-   :recursive:
-
-   factorpol.alphas_training
-   factorpol.bcc_training
-   factorpol.charge_training
-   factorpol.parameterization
-   factorpol.qm_worker
-   factorpol.utilities

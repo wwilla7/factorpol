@@ -1,5 +1,6 @@
-import copy
-
+"""
+    This module provide functionalities to generate reference QM ESPs and query existing ESPs data
+"""
 import ray
 import os
 import uuid
@@ -19,14 +20,14 @@ from openff.recharge.grids import MSKGridSettings
 from openff.toolkit.topology import Molecule
 import numpy as np
 from numpy import ndarray
-from typing import List
+from typing import List, Dict
 from sqlalchemy import select
 from sqlalchemy.orm.session import Session
 
 
 @ray.remote
 def _worker(
-    mol: str,
+    off_mol: Molecule,
     method: str,
     basis: str,
     wd: str,
@@ -36,10 +37,46 @@ def _worker(
     msk_layers: float = 4.0,
     external_field: ndarray = np.array([0.0, 0.0, 0.0]),
 ) -> List[MoleculeESPRecord]:
+    """
+    This function is used to carry out QM ESPs calculations with psi4
+
+    Parameters
+    ----------
+    off_mol: Molecule
+        Input molecule as an OpenFF molecule object
+
+    method: str
+        QM method
+
+    basis: str
+        QM level of theory
+
+    wd: str
+        Working directory
+
+    thread_per_worker: int
+        Number of cpus per worker
+
+    n_conf: int
+        Number of conformers to generate if the input molecule does not contains coordinates.
+
+    msk_density: float
+        Density of MSK grid points
+
+    msk_layers: float
+        Number of layer s of MSK grid points
+
+    external_field: np.ndarray
+        If impose electric field is desired. Default is none. np.array([0., 0. 0.])
+
+    Returns
+    -------
+    List[MoleculeESPRecord]
+        Returns all QM ESPs records
+
+    """
     qc_data_records = []
     os.makedirs(wd, exist_ok=False)
-
-    off_mol = Molecule.from_file(mol)
 
     qc_data_settings = ESPSettings(
         method=method,
@@ -76,6 +113,18 @@ def _worker(
 
 
 class QWorker:
+    """
+    Distribute QM calculations with `Ray`
+
+    Parameters
+    ----------
+    n_worker: int
+        Number of ray workers to run QM calculations
+
+    thread_per_worker: int
+        Number of CPUs per ray worker to use
+    """
+
     def __init__(self, n_worker: int = 2, thread_per_worker: int = 8):
         self.n_worker = n_worker
         self.thread_per_worker = thread_per_worker
@@ -89,7 +138,7 @@ class QWorker:
 
     def start(
         self,
-        dataset: List,
+        dataset: List[Molecule],
         method: str,
         basis: str,
         wd: str,
@@ -98,6 +147,41 @@ class QWorker:
         msk_layers: float = 4.0,
         external_field: ndarray = np.array([0.0, 0.0, 0.0]),
     ) -> List:
+        """
+        Start a calculation process.
+
+        Parameters
+        ----------
+        dataset: List[Molecule]
+            A list of OpenFF molecules to run QM ESPs calculations
+
+        method: str
+            QM method
+
+        basis: str
+            QM level of theory
+
+        wd: str
+            Working directory
+
+        n_conf: int
+            Number of conformers to generate if the input molecule does not contains coordinates.
+
+        msk_density: float
+            Density of MSK grid points
+
+        msk_layers: float
+            Number of layer s of MSK grid points
+
+        external_field: np.ndarray
+            If impose electric field is desired. Default is none. np.array([0., 0. 0.])
+
+        Returns
+        -------
+        List
+            Returns all MoleculeESPRecord in a list
+
+        """
         if os.path.exists(wd):
             subid = str(uuid.uuid4())
             wd = os.path.join(wd, subid)
@@ -123,21 +207,51 @@ class QWorker:
         self.records.append(ret)
         return ret
 
-    def store(self, my_session: Session, records: List[MoleculeESPRecord]):
+    def store(self, my_session: Session, records: List[MoleculeESPRecord]) -> List:
         """
-        :param my_session: A sqlalchemy session to storge records
-        :param records: Records calculated by `openff-recharge`
-        :return:
+        Store a list of MoleculeESPRecord to the input session associated with user database.
+
+        Parameters
+        ----------
+        my_session: session.Session
+            A working session associated with a database for storing QM ESPs data.
+
+        records:
+            A list of MoleculeESPRecords to be stored.
+
+        Returns
+        -------
+        List
+            Returns a list of SMILEs Strings of stored MoleculeESPRecords.
+
         """
+
         molecules = [add_molecule(r, my_session) for r in records]
         self.dataset.append(molecules)
         return molecules
 
 
 def add_molecule(record, my_session):
+    """
+    Add one record to the input session
+
+    Parameters
+    ----------
+    record: MoleculeESPRecord
+        The record to be stored.
+
+    my_session: session.Session
+        A working session associated with a database for storing QM ESPs data.
+
+    Returns
+    -------
+    str
+        Returns the SMILES string of stored record
+
+    """
 
     tagged_smiles = record.tagged_smiles
-    offmol = Molecule.from_smiles(tagged_smiles)
+    offmol = Molecule.from_mapped_smiles(tagged_smiles)
     smiles = offmol.to_smiles(explicit_hydrogens=False)
 
     stmt = select(DBMoleculeRecord).where(DBMoleculeRecord.smiles == smiles)
@@ -179,6 +293,20 @@ def add_molecule(record, my_session):
 
 
 def _from_conformer_to_molecule(dbconformer: DBConformerRecord):
+    """
+    Reconstruct a conformer record to a molecule record.
+
+    Parameters
+    ----------
+    dbconformer: DBConformerRecord
+        A conformer record DB
+
+    Returns
+    -------
+    MoleculeESPRecord
+        Returns a MoleculeESPRecord for this conformation.
+
+    """
     return MoleculeESPRecord(
         tagged_smiles=dbconformer.tagged_smiles,
         conformer=dbconformer.coordinates,
@@ -197,7 +325,27 @@ def _from_conformer_to_molecule(dbconformer: DBConformerRecord):
     )
 
 
-def retrieve_by_external_field(my_session: Session, molecule: str, eefield: np.ndarray):
+def retrieve_by_external_field(my_session: Session, molecule: str, eefield: np.ndarray) -> List:
+    """
+    Query records according to imposed electric field.
+
+    Parameters
+    ----------
+    my_session: session.Session
+        A working session associated with a database for stored QM ESPs data.
+
+    molecule: str
+        The SMILES string of the molecule to query
+
+    eefield: ndarray
+        The imposed electric field to filter
+
+    Returns
+    -------
+    List
+        A list of returned records
+
+    """
     db_records = my_session.scalars(
         select(DBConformerRecord)
         .join(DBMoleculeRecord)
@@ -210,7 +358,27 @@ def retrieve_by_external_field(my_session: Session, molecule: str, eefield: np.n
 
 def retrieve_by_conformation(
     my_session: Session, molecule: str, conformation: np.ndarray
-):
+) -> List:
+    """
+    Filter/retrieve records based on conformation
+
+    Parameters
+    ----------
+    my_session: session.Session
+        A working session associated with a database for stored QM ESPs data.
+
+    molecule: str
+        The SMILES string of molecule to filter
+
+    conformation: ndarray
+        The conformation coordinates to filter/query
+
+    Returns
+    -------
+    List
+        Returns a list of retrieved records
+
+    """
     db_records = my_session.scalars(
         select(DBConformerRecord)
         .join(DBMoleculeRecord)
@@ -220,7 +388,25 @@ def retrieve_by_conformation(
     return db_records
 
 
-def rebuild_molecule(my_session: Session, molecule: str):
+def rebuild_molecule(my_session: Session, molecule: str) -> Dict:
+    """
+    Rebuild a molecule with baseline QM ESPs from all conformations.
+
+    Parameters
+    ----------
+    my_session: session.Session
+        A working session associated with a database for stored QM ESPs data.
+
+    molecule: str
+        The SMILE String of the molecule of choice.
+
+    Returns
+    -------
+    Dict
+        Returns a dictionary of records
+        Conformer names are keys and records are values.
+
+    """
     molecules = retrieve_by_external_field(
         my_session=my_session, molecule=molecule, eefield=np.zeros(3)
     )

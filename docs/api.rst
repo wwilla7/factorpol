@@ -10,3 +10,7 @@ API Documentation
    :members:
 .. autoclass:: factorpol.qm_worker.QWorker
    :members:
+.. autoclass:: factorpol.utilities.StorageHandler
+   :members:
+.. automodule:: factorpol.utilities
+   :members:

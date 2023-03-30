@@ -2,68 +2,69 @@
 This module provides functionalities to derive and obtain typed polarizabilities from QM reference data.
 """
 
+import copy
 import os
+import shutil
+from typing import List
 
+import numpy as np
 import pint
 import ray
-import shutil
+from openff.recharge.esp.storage import MoleculeESPRecord
+from openff.toolkit import ForceField
+from scipy.optimize import minimize
+
+from factorpol.charge_training import ChargeTrainer
+from factorpol.qm_worker import rebuild_molecule
+from factorpol.utilities import (
+    calc_rrms,
+    flatten_a_list,
+    Polarizability,
+    StorageHandler,
+)
 
 ureg = pint.UnitRegistry()
 Q_ = ureg.Quantity
-from typing import List
-from openff.recharge.esp.storage import MoleculeESPRecord
-from enum import Enum
-from factorpol.charge_training import ChargeTrainer
-import numpy as np
-import copy
-from factorpol.utilities import flatten_a_list
-from factorpol.utilities import PolarizabilityType, StorageHandler, Polarizability, calc_rrmse
-from scipy.optimize import minimize
-from factorpol.qm_worker import rebuild_molecule
-from openff.toolkit import ForceField
 
 # elementary_charge/bohr to kcal/mol/elementary_charge
 au_to_kcal = 633.0917033332278
 
 
 class AlphaWorker(ChargeTrainer):
+    """
+    A class used to derive polarizability from QM ESPs.
+
+    Parameters
+    ----------
+    record: MoleculeESPRecord
+        QM reference record
+
+    off_forcefield: ForceField
+         OpenFF force field to handle SMIRNOFF typing of polarizabilities
+
+    polarizability: Polarizability
+        Input polarizabilities
+
+    coulomb14scale: float
+        Scaling factor to scale Coulomb 1-4 interactions
+
+    """
     def __init__(
             self,
             record: MoleculeESPRecord,
-            polarizability_type: Enum,
-            ff: ForceField,
-            parameters_path: str = "default",
-            coulomb14scale: float = 0.5,
+        off_forcefield: ForceField,
+        polarizability: Polarizability,
+        coulomb14scale: float = 0.5,
     ):
-        """
-        A class used to optimize polarizabilities
-        :param record: QM reference record
-        :param polarizability_type: Polarizability Typing scheme
-        :param parameters_path: Output path of updated parameters
-        :param coulomb14scale: Coulomb14 scaling factor
-        """
+
         super().__init__(
             record=record,
-            polarizability_type=polarizability_type,
-            ff=ff
+            off_forcefield=off_forcefield,
+            polarizability=polarizability,
+            coulomb14scale=coulomb14scale,
         )
-        if (
-                self.polarizability_type == PolarizabilityType.Element
-                and parameters_path == "default"
-        ):
-            from factorpol.utilities import ETPol as alphas
 
-        elif (
-                self.polarizability_type == PolarizabilityType.SMIRNOFF
-                and parameters_path == "default"
-        ):
-            from factorpol.utilities import SmirnoffPol as alphas
-
-        else:
-            self.polarizability_type = polarizability_type
-            alphas = Polarizability(data_source=parameters_path, typing_scheme=self.polarizability_type)
-
-        self.alphas = alphas
+        self.alphas = polarizability
         self.coulomb14scale = coulomb14scale
         self.perturb_dipole = record.esp_settings.perturb_dipole
 
@@ -77,55 +78,65 @@ class AlphaWorker(ChargeTrainer):
 
 
 def _update_workers(
-        workers: List[AlphaWorker], parameters_path: str, polarizability_type: Enum, coulomb14scale: float = 0.5
+    workers: List[AlphaWorker], parameters_path: str, coulomb14scale: float = 0.5
 ):
     """
     Method to update charge workers for next optimization iteration
-    :param workers: AlphaWorker Object
-    :param parameters_path: Output path for polarizability parameters
-    :param polarizability_type: Polarizability typing scheme
-    :param coulomb14scale: coulomb14 scaling factor
-    :return: Updated AlphaWorker object
+
+    Parameters
+    ----------
+    workers: List[AlphaWorker]
+        A list of AlphaWorker
+
+    parameters_path: str
+        Path to newly solved polarizabilities
+
+    coulomb14scale: float
+        Scaling factor of Coulomb 1-4 interactions.
+        Normally set as constant but it could be optimized.
+
+    Returns
+    -------
+    AlphaWorker
+        Returns updated AlphasWorker
+
     """
-    alphas = Polarizability(
-        data_source=parameters_path, typing_scheme=polarizability_type
-    )
+
+    alphas = Polarizability(data_source=parameters_path)
     for w in workers:
         w.alphas = alphas
-        w.coulomb14scale = coulomb14scale
+        # w.coulomb14scale = coulomb14scale # remove comment if optimizing
     return workers
 
 
 class AlphasTrainer:
+    """
+    Top level optimizer to train polarizability parameters
+
+    Parameters
+    ----------
+    workers: List[AlphaWorker]
+        A list of AlphaWorker
+
+    prior: Polarizability
+        Initial polarizability
+
+    working_directory: str
+        The path to the working directory
+
+    """
     def __init__(
             self,
             workers: List[AlphaWorker],
-            polarizability_type: Enum,
-            prior: Enum,
-            working_directory: str = os.path.join(os.getcwd(), "data_alphas"),
+        prior: Polarizability,
+        working_directory: str = os.path.join(os.getcwd(), "data_alphas"),
     ):
-        """
-        Top level optimizer to train polarizability parameters
-        :param workers:
-        :param polarizability_type:
-        :param prior:
-        :param working_directory:
-        """
+
         self.coulomb14scale = None
         self.alphas_path = None
-        self.polarizability_type = polarizability_type
         self.working_directory = working_directory
         self.iteration = 0
-        if self.polarizability_type == PolarizabilityType.Element:
-            from factorpol.utilities import ETPol
-            self.base = ETPol.data
-        # elif self.polarizability_type == PolarizabilityType.SMIRNOFF:
-        #     from factorpol.utilities import SmirnoffPol
-        #     self.base = SmirnoffPol.data
-        else:
-            self.polarizability_type = polarizability_type
-            self.base = prior.data
-            # raise NotImplementedError
+        self.base = prior.data
         self.parameter_type_to_train = prior.parameters.keys()
         self.prior = [v.magnitude for v in prior.parameters.values()]
 
@@ -135,14 +146,25 @@ class AlphasTrainer:
         os.makedirs(self.working_directory, exist_ok=True)
         self.workers = workers
 
-    def worker(self, input_data):
+    def worker(self, input_data: np.ndarray):
         """
-        A method to calculate loss function
-        :param input_data: Input polarizability
-        :return: Output objective
+        A method to compute the loss
+
+        Parameters
+        ----------
+        input_data: ndarray
+            Polarizability solved from the previous optimization
+
+        Returns
+        -------
+            Returns the optimizer output object.
+
         """
+
         self.iteration += 1
-        self.alphas_path = os.path.join(self.working_directory, f"alpha_{self.iteration:03d}.log")
+        self.alphas_path = os.path.join(
+            self.working_directory, f"alpha_{self.iteration:03d}.log"
+        )
 
         for k, v in zip(self.parameter_type_to_train, input_data):
             self.base.loc[k, "Polarizability (angstrom**3)"] = v
@@ -152,7 +174,6 @@ class AlphasTrainer:
         workers = _update_workers(
             workers=self.workers,
             parameters_path=self.alphas_path,
-            polarizability_type=self.polarizability_type
         )
 
         loss = [AlphasTrainer._calc_loss.remote(w) for w in workers]
@@ -162,11 +183,21 @@ class AlphasTrainer:
 
     def optimize(self, bounds, num_cpus=8):
         """
-        Use Ray and Scipy optimizer to optimize polarizabilities
-        :param bounds:
-        :param num_cpus:
-        :return:
+        Distribute the optimization process with `Ray`
+
+        Parameters
+        ----------
+        bounds: tuple
+            The bounds of each polarizability type
+
+        num_cpus: int
+            The number of CPUs available for optimization
+
+        Returns
+        -------
+            Returns the result object of optimizer.
         """
+
         ray.shutdown()
         ray.init(num_cpus=num_cpus, num_gpus=0)
         x0 = self.prior
@@ -180,10 +211,20 @@ class AlphasTrainer:
     @staticmethod
     def _calc_Esps_mu(worker: AlphaWorker) -> np.ndarray:
         """
-        Calculate MM ESPs using mutual polarizabilities
-        :param worker: AlphaWorker
-        :return: MM ESPs
+        Calculate the MM ESPs on grid points using mutual polarization
+
+        Parameters
+        ----------
+        worker: AlphaWorker
+            The AlphaWorker that contains all ESP-fitting related data
+
+        Returns
+        -------
+        ndarray
+            Returns the computed ESPs on grid points
+
         """
+
         external_field = worker.perturb_dipole
         # cast a local electric field matrix
         efield = np.full_like(a=np.zeros((worker.natoms, 3)), fill_value=external_field)
@@ -200,38 +241,64 @@ class AlphasTrainer:
     @ray.remote(num_cpus=1)
     def _calc_loss(worker: AlphaWorker) -> float:
         """
-        Method to calculate objective function for one worker
-        :param worker: AlphaWorker
-        :return: Loss
+        Calculate the lost function (RRMS) for one worker
+
+        Parameters
+        ----------
+        worker: AlphasWorker
+            The AlphaWorker that contains all ESP-fitting related data
+
+        Returns
+        -------
+        float
+            Returns the Loss (RRMS) value
+
         """
+
         calced = AlphasTrainer._calc_Esps_mu(worker)
         ref = worker.vdiff
-        loss = calc_rrmse(calced, ref)  # rrmse
+        loss = calc_rrms(calced, ref)  # rrmse
         return loss
 
 
 class AlphaData:
+    """
+    A class to prepare reference QM ESPs for optimization of polarizability
+
+    Parameters
+    ----------
+    database_name: str
+        The name of database to query
+
+    dataset: List[str]
+        A list of molecules to query
+
+    num_cpus: int
+        The number of process to initialize to generate relevant data
+
+    """
     def __init__(
-            self, database_name: str, dataset: List[str], polarizability_type: Enum, parameter_path, ff, num_cpus: int = 8
+            self,
+            database_name: str,
+        dataset: List[str],
+        off_forcefield: ForceField,
+        num_cpus: int = 8,
     ):
-        """
-        A class to prepare reference data to derive polarizabilities
-        :param database_name: SQL dataset name
-        :param dataset: Training molecule
-        :param polarizability_type: Polarizability typing scheme
-        :param num_cpus: Number of CPUs available to prepare dataset
-        """
+
         self.database_name = database_name
         self.dataset = dataset
         self.workers = []
-        self.polarizability_type = polarizability_type
 
         ray.shutdown()
         ray.init(num_cpus=num_cpus)
 
         ret = [
-            create_worker.remote(database_name, molecule=mol, polarizability_type=self.polarizability_type,
-                                  ff=ff, parameters_path=parameter_path)
+            create_worker.remote(
+                database_name,
+                molecule=mol,
+                off_forcefield=off_forcefield,
+                coulomb14scale=0.5,
+            )
             for mol in self.dataset
         ]
         workers = ray.get(ret)
@@ -242,22 +309,40 @@ class AlphaData:
 
 @ray.remote(num_cpus=1)
 def create_worker(
-        database_name: str,
-        molecule: str,
-        polarizability_type: Enum,
-        ff: ForceField,
-        parameters_path: str = "default",
-        coulomb14scale: float = 0.5,
+    database_name: str,
+    molecule: str,
+    polarizability: Polarizability,
+    off_forcefield: ForceField,
+    coulomb14scale: float = 0.5,
 ) -> List[AlphaWorker]:
     """
-    A function to create an AlphaWorker using QM reference data
-    :param database_name: SQL database name
-    :param molecule: one molecule
-    :param polarizability_type: Polarizability Typing scheme
-    :param parameters_path: Polarizability parameters path
-    :param coulomb14scale: Coulomb14 scaling factor
-    :return: AlphaWorker
+    This is a function to gather all necessary information to optmize polarizability
+
+    Parameters
+    ----------
+    database_name: str
+        The name of dataset to query
+
+    molecule: str
+        The SMILES to look for.
+
+    polarizability: Polarizability
+        A polarizability library
+
+    off_forcefield: ForceField
+        OpenFF ForceField to label molecules with SMIRNOFF patterns.
+
+    coulomb14scale: float
+        Scaling factor of Coulomb 1-4 interactions.
+        Normally set as constant but it could be optimized.
+
+    Returns
+    -------
+    List[AlphaWorker]
+        Returns a list of prepared AlphaWorkers.
+
     """
+
     workers = []
 
     store = StorageHandler()
@@ -271,9 +356,8 @@ def create_worker(
         for r in records:
             worker = AlphaWorker(
                 record=r,
-                polarizability_type=polarizability_type,
-                ff=ff,
-                parameters_path=parameters_path,
+                off_forcefield=off_forcefield,
+                polarizability=polarizability,
                 coulomb14scale=coulomb14scale,
             )
             if np.allclose(np.zeros(3), r.esp_settings.perturb_dipole):
@@ -286,5 +370,4 @@ def create_worker(
             w.vdiff = w.esp_values - base.esp_values
 
         workers.extend(this_conf)
-        #workers.append(base)
     return workers

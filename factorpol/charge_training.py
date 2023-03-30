@@ -4,49 +4,55 @@ A module to generate partial charges to use with typed polarizabilities.
 
 
 import copy
-import os
-from enum import Enum
-from typing import List
+from typing import List, Tuple
 
 import numpy as np
 import pint
 from openff.recharge.esp.storage import MoleculeESPRecord
-from openff.toolkit import Molecule, ForceField
+from openff.toolkit import ForceField, Molecule
 from openff.units import unit
 from scipy.spatial import distance
 
-from factorpol.utilities import (
-    canonical_ranking,
-    coulomb_scaling,
-    flatten_a_list,
-    pair_equivalent,
-    PolarizabilityType,
-    smirnoff_labels,
-)
+from factorpol.utilities import (canonical_ranking, coulomb_scaling,
+                                 flatten_a_list, pair_equivalent,
+                                 Polarizability, smirnoff_labels)
 
 ureg = pint.UnitRegistry()
 Q_ = ureg.Quantity
 
 
 class ChargeTrainer:
+    """
+    A Class contains all information needed to do ESP-fitting related calculations.
+
+    **All operations use atomic unit**
+
+    Parameters
+    ----------
+    record: MoleculeESPRecord
+        MoleculeESPRecord contains all EPS-fitting related reference data.
+
+    polarizability: Polarizability
+        Polarizabilities for all polarizability related operation
+
+    off_forcefield: ForceField
+        An OpenFF ForceField used for labeling SMIRNOFF patterns.
+
+    coulomb14scale: float
+        A scaling factor to scale 1-4 coulomb interactions.
+        Default is 0.5
+        Commonly used values include 0.83333
+
+    """
     def __init__(
-        self,
-        record: MoleculeESPRecord,
-        polarizability_type: Enum,
-        ff: ForceField = ForceField("openff-2.0.0.offxml"),
+            self,
+            record: MoleculeESPRecord,
+        polarizability: Polarizability,
+        off_forcefield: ForceField,
+        coulomb14scale: float = 0.5,
     ):
-        """
-        A class to generate QM ESPs derived partial charges in the context of direct polarization.
 
-        Notes: this class use atomic unit for all calculations.
-
-        :param record: `openff.recharge.esp.storage.MoleculeESPRecord` that contains all QM reference data
-                        for generating QM ESPs derived partial charges
-        :param polarizability_type: The polarizability typing scheme of choice.
-        :param ff: An OpenFF force field object to create smirnoff patterns
-        """
         self.record = record
-        self.polarizability_type = polarizability_type
         self.tagged_smiles = self.record.tagged_smiles
         self.atomcrds = Q_(self.record.conformer, "angstrom").to("bohr").magnitude
         self.gridcrds = (
@@ -78,107 +84,117 @@ class ChargeTrainer:
             [self.natoms, self.natoms, 1]
         )  # r_{jk}^3
 
+        # reconstruct an OpenFF molecule and put in correct coordinates.
         offmol = Molecule.from_mapped_smiles(self.tagged_smiles)
         offmol.generate_conformers(n_conformers=1)
         offmol.conformers.clear()
         offmol.conformers.append(self.atomcrds * unit.bohr)
         self.offmol = copy.deepcopy(offmol)
+
         self.rdmol = self.offmol.to_rdkit()
         self.qcmol = self.offmol.to_qcschema()
         self.symbols = self.qcmol.symbols
         self.equivalent_atoms = pair_equivalent(canonical_ranking(self.rdmol))
         self.n_equivalent = len(self.equivalent_atoms)
         self.net_charge = self.qcmol.molecular_charge
-        # self.parameters_path = "default"
+        self.smirnoff_patterns = smirnoff_labels(self.offmol, off_forcefield)
+        self.coulomb14scale = coulomb14scale
         self.coulomb_scaling_matrix = None
-        self.smirnoff_patterns = smirnoff_labels(self.offmol, ff)
-
-    @property
-    def coulomb14scale(self):
-        return self._coulomb14scale
-
-    @coulomb14scale.setter
-    def coulomb14scale(self, value):
-        self._coulomb14scale = value
+        self.alphas = [
+            polarizability.parameters[p].to("bohr**3").magnitude
+            for p in self.smirnoff_patterns
+        ]
 
     @property
     def smiles(self) -> str:
+        """
+
+        Returns
+        -------
+        str
+            SMILES string without explicit hydrogens.
+
+        """
         return self.offmol.to_smiles(explicit_hydrogens=False)
 
     @property
     def polar_region(self) -> List:
+        """
+        A method used to select polar region for the second stage RESP-dPol fit.
+
+        Returns
+        -------
+        List
+            Returns a list of atoms that are defined as in polar region.
+
+        """
         forced_symmtry = set(flatten_a_list(self.equivalent_atoms))
         ret = list(set(range(self.offmol.n_atoms)) - forced_symmtry)
         return ret
 
     @property
-    def partial_charges_espfit(self) -> pint.Quantity:
-        _, _, preq = self.free_esp_charges()
-        _, _, qd = self.resp_style_dpolq(pre_charge=preq)
+    def resp_dpol(self) -> pint.Quantity:
+        """
+        A method to generate RESP-dPol partial charges by fitting to baseline QM ESPs
+
+        Returns
+        -------
+        pint.Quantity
+            Returns RESP-dPol partial charges
+
+        """
+        _, _, preq = self.plain_esp_charges()
+        _, _, qd = self.derive_resp_dpol(pre_charge=preq)
         return Q_(qd, ureg.elementary_charge)
 
     @property
-    def alphas(self) -> List:
-        return self._alphas
+    def respdpol_dipoles(self) -> pint.Quantity:
+        """
 
-    @alphas.setter
-    def alphas(self, value: Enum):
-        if self.polarizability_type == PolarizabilityType.Element:
-            self._alphas = [
-                value.parameters[ele].to("bohr**3").magnitude for ele in self.symbols
-            ]
-        elif self.polarizability_type == PolarizabilityType.SMIRNOFF:
-            self._alphas = [
-                value.parameters[sf].to("bohr**3").magnitude
-                for sf in self.smirnoff_patterns
-            ]
-        else:
-            raise NotImplementedError
+        Returns
+        -------
+        pint.Quantity
+            Molecular dipole moment calculated using RESP-dPol charges.
 
-    @property
-    def molecular_dipole_esp(self) -> pint.Quantity:
-        ret = self.calc_molecular_dipoles(self.partial_charges_espfit)
-        return ret
-
-    @property
-    def molecular_dipole_bcc(self) -> pint.Quantity:
-        ret = self.calc_molecular_dipoles(self.partial_charges_bcc)
+        """
+        ret = self.calc_molecular_dipoles(self.resp_dpol)
         return ret
 
     @property
     def mm_base_esps(self) -> pint.Quantity:
-        ret = self.calc_Esps(self.partial_charges_espfit.magnitude)
+        """
+
+        Returns
+        -------
+        pint.Quantity
+            Calculated MM ESPs without polarizability
+
+        """
+        ret = self.calc_Esps(self.resp_dpol.magnitude)
         return Q_(ret, "e*a0")
 
     @property
-    def mm_dpol_esps(self):
-        ret, _ = self.calc_Esps_dpol(self.partial_charges_espfit.magnitude)
+    def mm_dpol_esps(self) -> pint.Quantity:
+        """
+
+        Returns
+        -------
+        pint.Quantity
+            Calculated MM ESPs with polarizability
+
+        """
+        ret, _ = self.calc_Esps_dpol(self.resp_dpol.magnitude)
         return Q_(ret, "e*a0")
 
-    @property
-    def partial_charges_bcc(self):
+    def plain_esp_charges(self) -> Tuple:
         """
-        Generate AM1-BCC-dPol partial charges
-        :return: AM1-BCC-dPol partial charges
-        """
-        from factorpol.bcc_training import BccTrainer
+        Derive unconstrained ESP-fitting charges from baseline QM ESPs.
 
-        if self.polarizability_type == PolarizabilityType.Element:
-            from factorpol.utilities import FactorPolETBccs as this_bcc_collection
-        elif self.polarizability_type == PolarizabilityType.SMIRNOFF:
-            from factorpol.utilities import FactorPolSFBccs as this_bcc_collection
-        else:
-            raise NotImplementedError
+        Returns
+        -------
+        ndarray, ndarray, ndarray
+            matrix, vector, solution
 
-        ret = BccTrainer.generate_charges(
-            self.offmol, this_bcc_collection.recharge_collection
-        )
-        return Q_(ret.reshape(-1), ureg.elementary_charge)
-
-    def free_esp_charges(self):
-        """
-        Generate unconstrained QM ESP derived partial charges
-        :return: matrix, vector, final charges
         """
         dimension = self.natoms + 1
         matrix = np.zeros([dimension, dimension])
@@ -200,10 +216,15 @@ class ChargeTrainer:
 
         return matrix, vector, esp_charge
 
-    def forced_symmetry_esp_charges(self):
+    def forced_symmetry_esp_charges(self) -> Tuple:
         """
-        Generate QM ESPs derived partial charges with forced symmetry
-        :return: matrix, vector, final charges
+        Derived ESP-fitting partial charges from baseline QM ESPs with forced symmetry
+
+        Returns
+        -------
+        ndarray, ndarray, ndarray
+            matrix, vector, solution
+
         """
         dimension = self.natoms + 1 + self.n_equivalent
         matrix = np.zeros([dimension, dimension])
@@ -238,11 +259,27 @@ class ChargeTrainer:
 
         return matrix, vector, esp_charge
 
-    def resp_style_dpolq(self, pre_charge):
-        """
-        Generate RESP-like partial charges in the context of direct polarization
-        :param pre_charge: Unconstrained QM ESPs-derived partial charges, i.e., first stage fitting
-        :return: matrix, vector, final charges
+    def derive_resp_dpol(self, pre_charge: np.ndarray) -> Tuple:
+        r"""
+        Derive RESP-dPol partial charges from baseline QM ESPs.
+
+        .. math:: \chi^2 = \sum_{i=1}^{m} (V_{\mathrm{QM, i}} - V_{\mathrm{perm, i}} - V_{\mathrm{ind, i}}) + \lambda({\sum}_{j=1}^{n}q_j - q_{\mathrm{tot}}) + a\sum_{j=1}^{n}(\sqrt{q_j^2 + b^2} - b)
+
+
+        first stage: a = 0.005 a.u., b = 0.1 a.u.
+
+        second stage: a = 0.01 a.u., b = 0.1 a.u.
+
+        Parameters
+        ----------
+        pre_charge: ndarray
+            Plain ESP charges as a starting point
+
+        Returns
+        -------
+        ndarray, ndarray, ndarray
+            matrix, vector, solution
+
         """
 
         _, intra_e = self.calc_Esps_dpol(pre_charge)
@@ -289,11 +326,20 @@ class ChargeTrainer:
 
         return matrix, vector, esp_charge
 
-    def calc_Esps_dpol(self, partial_charge):
+    def calc_Esps_dpol(self, partial_charge: np.ndarray) -> Tuple:
         """
-        Calculate Coulomb potentials using input partial charges.
-        :param partial_charge: Input partial charges
-        :return: Final Coulomb potentials, Potentials generated by induced dipoles
+        Calculate Coulomb potentials on grid points using polarizabilities and input partial charges.
+
+        Parameters
+        ----------
+        partial_charge: np.ndarray
+            Input partial charges to compute ESPs on grid points.
+
+        Returns
+        -------
+        ndarray, ndarray
+            Total EPSs, ESPs from induced dopoles.
+
         """
 
         self.coulomb_scaling_matrix = coulomb_scaling(
@@ -319,11 +365,20 @@ class ChargeTrainer:
         ret = base_esps + dpol_esps
         return ret, dpol_esps
 
-    def _calc_efield(self, partial_charge):
+    def _calc_efield(self, partial_charge: np.ndarray) -> np.ndarray:
         """
-        Calculate electric fields generated by permanent partial charges.
-        :param partial_charge: Input partial charges
-        :return: Electric fields
+        A method to compute electric field generated by permanent electrostatics.
+
+        Parameters
+        ----------
+        partial_charge: ndarray
+            Input partial charges to generate local electric fields.
+
+        Returns
+        -------
+        ndarray
+            Returns local electric fields generated by permanent partial charges.
+
         """
 
         efield = np.zeros((self.natoms, 3))
@@ -337,24 +392,45 @@ class ChargeTrainer:
                 )
         return efield
 
-    def calc_Esps(self, partial_charge):
-        """
-        Calculate Coulomb potentials generated by permanent partial charges
-            $V_i = \sum\limits_{j = 1}^{n}\frac{q_j}{r_{ij}}$
+    def calc_Esps(self, partial_charge: np.ndarray) -> np.ndarray:
+        r"""
 
-        :param partial_charge: Input partial charges
-        :return: Electrostatic potentials
+        A method to compute Coulomb potentials generated by permanent partial charges
+
+        .. math:: V_{i} = \sum_{j=1}^{n} \frac{q_{j}}{r_{ij}}
+
+        Parameters
+        ----------
+        partial_charge: ndarray
+            Input partial charges to generate ESPs on grid points.
+
+        Returns
+        -------
+        ndarray
+            Returns computed ESPs without polarizability.
+
         """
+
         esps = np.dot(partial_charge, self.rec_rij)
 
         return esps
 
-    def calc_molecular_dipoles(self, partial_charges) -> pint.Quantity:
+    def calc_molecular_dipoles(self, partial_charges: np.ndarray) -> pint.Quantity:
         """
-        Calculate molecular dipole moments using permanent electrostatics
-        :param partial_charges: Input partial charges
-        :return: Molecular dipole moment
+        Compute molecular dipole moment
+
+        Parameters
+        ----------
+        partial_charges: ndarray
+            Input partial charges to calculate molecular dipole moments
+
+        Returns
+        -------
+        pint.Quantity
+            Returns molecular dipole moment.
+
         """
+
         if isinstance(partial_charges, pint.Quantity):
             qs = partial_charges.magnitude
         ret = Q_(
@@ -368,12 +444,24 @@ class ChargeTrainer:
         ).to("debye")
         return ret
 
-    def calc_molecular_dipoles_dpol(self, partial_charges) -> pint.Quantity:
+    def calc_molecular_dipoles_dpol(self, partial_charges: np.ndarray) -> pint.Quantity:
+        r"""
+        Compute molecular dipole moments with polarizability and permanent partial charges
+
+        .. math:: \mu = \sum{j=1}^{n}(q_j + \mu_\mathrm{ind, j})~\mathrm{r}_j
+
+        Parameters
+        ----------
+        partial_charges: ndarray
+            Input partial charges to calculate molecular dipole moments
+
+        Returns
+        -------
+        pint.Quantity
+            Returns molecular dipole moment.
+
         """
-        Calculate molecular dipole moments and induced dipoles
-        :param partial_charges: Input partial charges
-        :return: molecular dipole moments
-        """
+
         if isinstance(partial_charges, pint.Quantity):
             qs = partial_charges.magnitude
 
@@ -395,15 +483,28 @@ class ChargeTrainer:
         ).to("debye")
         return ret
 
-    def calc_Esps_mpol(self, partial_charge):
-        """
+    def calc_Esps_mpol(self, partial_charge: np.ndarray) -> Tuple:
+        r"""
         Calculate Coulomb potentials using mutual polarization
-        $$\overrightarrow{\mu}_{\textrm{ind,j}} = \alpha_j \overrightarrow{E}_j$$
-        Electric field by dipole
-        $$\overrightarrow{E}_{\mu} =
-        \frac{1}{\overrightarrow{r}^3}[(3\overrightarrow{\mu}\cdot r) r - \overrightarrow{\mu} ]$$
-        :param partial_charge: Input partial charges
-        :return: Final ESPs and ESPs generated by induced dipoles
+
+        .. math::
+                  {\mathbf{\mu}_{ind,j}} = {\alpha_j} {\mathbf{E}_j}
+
+        Electric field produced by induced dipole moments:
+
+        .. math::
+                  \mathbf{E}_{\mu} = \frac{1}{\mathbf{r}^3}[(3\mathbf{\mu}\cdot r) r - \mathbf{\mu}]
+
+        Parameters
+        ----------
+        partial_charge: ndarray
+            Input partial charges to compute MM ESPs on grid points
+
+        Returns
+        -------
+        ndarray, ndarray
+            Total ESPs and ESPs generated by induced dipoles
+
         """
 
         alphas = copy.deepcopy(self.alphas)
@@ -449,12 +550,22 @@ class ChargeTrainer:
             ret = charge_esp + dipole_esp
             return ret, dipole_esp
 
-    def _calc_efield_by_dipole(self, dipole):
+    def _calc_efield_by_dipole(self, dipole: np.ndarray) -> np.ndarray:
         """
-        Calculate electris fields generated by induced dipoles
-        :param dipole: Induced dipoles
-        :return: Electric field
+        Calculate electric fields generated by induced dipoles with direct polarization
+
+        Parameters
+        ----------
+        dipole: ndarray
+            Input atomic dipole to compute electric fields from.
+
+        Returns
+        -------
+        ndarray
+            Returns computed electric field tensor.
+
         """
+
         induced_field = np.zeros((self.natoms, 3))
 
         for k in range(self.natoms):

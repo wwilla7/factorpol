@@ -12,7 +12,9 @@ A Fast Atom-Centered Typed Isotropic Ready-to-use Polarizable Electrostatic Mode
 We present an efficient polarizable electrostatic model using direct polarization[1], SMIRNOFF[2] typed polarizabilities, and a new AM1-BCC[3,4]-style charge model for improved electrostatics in molecular dynamics (MD) simulations. 
 
 
-This toolkit and documentation are currently under continuous development and improvement.
+This toolkit and [documentation](https://factorpol.readthedocs.io/en/latest) are currently under continuous development and improvement.
+
+
 
 
 References:

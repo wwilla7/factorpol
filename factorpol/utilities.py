@@ -1,35 +1,36 @@
+"""
+    This module contains useful functions to use with Factor-Pol model
+
+"""
 import enum
 import os
-import shutil
 import subprocess
 import time
 from collections import defaultdict
-from typing import List, Dict, Literal, Tuple
+from dataclasses import dataclass
+from typing import Dict, List, Literal, Tuple
 
 import numpy as np
 import pandas as pd
+import pint
 from numpy import ndarray
-from openff.toolkit.topology import Molecule, Topology
-from openff.toolkit.typing.engines.smirnoff import ForceField
-from rdkit import Chem
-from sqlalchemy import create_engine, select
-from openff.recharge.esp.storage.db import DBBase
-from sqlalchemy.orm import sessionmaker, session
-from sqlalchemy_utils import create_database, database_exists, drop_database
-from openff.recharge.esp.storage import MoleculeESPStore
-from openff.recharge.esp.storage.db import DBMoleculeRecord
 from openff.recharge.charges.bcc import (
     BCCCollection,
     BCCParameter,
     original_am1bcc_corrections,
 )
-from dataclasses import dataclass
-import pint
+from openff.recharge.esp.storage import MoleculeESPStore
+from openff.recharge.esp.storage.db import DBBase, DBMoleculeRecord
+from openff.toolkit.topology import Molecule, Topology
+from openff.toolkit.typing.engines.smirnoff import ForceField
+from pkg_resources import resource_filename
+from rdkit import Chem
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import session, sessionmaker
+from sqlalchemy_utils import create_database, database_exists
 
 ureg = pint.UnitRegistry()
 Q_ = ureg.Quantity
-from pkg_resources import resource_filename
-from enum import Enum
 
 original_bcc_collections = original_am1bcc_corrections()
 aromaticity_model = original_bcc_collections.aromaticity_model
@@ -38,9 +39,18 @@ ff = ForceField("openff-2.0.0.offxml")
 
 def pair_equivalent(pattern: List) -> ndarray:
     """
-    A function to pair related patterns together
-    :param pattern: A list of patterns that needs to be paired
-    :return: A list of paired patterns
+    A function to pair related patterns together for use as constraints
+
+    Parameters
+    ----------
+    pattern: List
+        A list of patterns, could be elements, SMIRNOFF patterns
+
+    Returns
+    -------
+    ndarry
+        Return pairs of related patterns in a nested numpy ndarry.
+
     """
     tmp1 = defaultdict(list)
     for idx1, p in enumerate(pattern):
@@ -61,41 +71,86 @@ def pair_equivalent(pattern: List) -> ndarray:
 def canonical_ranking(rdmol: Chem.rdchem.Mol) -> List:
     """
     A function to calculte canonical ranking for forced symmetry using RDKit
-    :param rdmol: RDK molecule
-    :return: A list of atomic features based the canonical ranking
+
+    Parameters
+    ----------
+    rdmol: Chem.rdchem.Mol
+        A rdkir molecule object
+
+    Returns
+    -------
+    List
+        A list of atomic features based on the canonical ranking of all atoms
+
     """
+
     ret = list(Chem.rdmolfiles.CanonicalRankAtoms(rdmol, breakTies=False))
     return ret
 
 
-def smirnoff_labels(offmol: Molecule, off: ForceField) -> List:
+def smirnoff_labels(offmol: Molecule, off_forcefield: ForceField) -> List:
     """
-    A function to label OpenFF molecule with input force field files
-    :param offmol: OpenFF Molecule
-    :param off: Open Force Field force field
-    :return: a list smirks pattern by van der Waals parameter types
+    A function to label OpenFF molecule objecit with SMIRNOFF patternes specified in the input OpenFF ForceField object.
+
+    Parameters
+    ----------
+    offmol: Molecule
+        The input molecule to label
+
+    off_forcefield: ForceField
+        The input openff ForceField with SMIRNOFF patterns to label atoms in molecule.
+
+    Returns
+    -------
+    List
+        Return a list of SMIRNOFF patterns associated with atoms in molecule
+
     """
+
     off_topology = Topology.from_molecules(offmol)
-    parameters_list = off.label_molecules(off_topology)[0]
+    parameters_list = off_forcefield.label_molecules(off_topology)[0]
     ret = [v._smirks for _, v in parameters_list["vdW"].items()]
     return ret
 
 
 def flatten_a_list(nest_list: List) -> List:
     """
-    Handy function to flatten a nested list
+    A handy funtion to flatten a nested list
+
+    Parameters
+    ----------
+    nest_list: List
+        A nested list that needed to be flatten into a 1-D list
+
+    Returns
+    -------
+    List
+        Return a 1-D list
+
     """
     return [item for sublst in nest_list for item in sublst]
 
 
 def coulomb_scaling(rdmol: Chem.rdchem.Mol, coulomb14scale: float = 0.5) -> ndarray:
     """
-    A function to create scaling matrix for coulomb scaling
-    :param rdmol: RDKit Molecule
-    :param coulomb14scale: The scaling factor of coulomb interactions, default is 0.5
-    :return: A scaling_matrix matrix used for computing electric field by fixed point charges
-             Exclude 1-2, 1-3, and scale 1-4 by coulomb14scale factor
+    A function to create scaling matrix for scaling the 1-4 interactions in Coulomb interactions
+
+    Parameters
+    ----------
+    rdmol: Chem.rdchem.Mol
+        An input rdkit molecule used for specifying connectivity
+
+    coulomb14scale: float
+        The coulomb14 scaling factor, default value is 0.5. Commonly used value includes 0.83333
+
+    Returns
+    -------
+    ndarray
+        Returns a numpy ndarray as scaling matrix for using in scaling Coulomb interactions.
+        This scaling matrix excludes all 1-2, 1-3 interactions and scales 1-4 by coulomb14scale factor.
+
     """
+
     natom = rdmol.GetNumAtoms()
     # initializing arrays
     bonds = []
@@ -118,7 +173,7 @@ def coulomb_scaling(rdmol: Chem.rdchem.Mol, coulomb14scale: float = 0.5) -> ndar
     for i in range(natom):
         b12_idx = np.nonzero(bound12[i])[0]
         for idx, j in enumerate(b12_idx):
-            for k in b12_idx[idx + 1:]:
+            for k in b12_idx[idx + 1 :]:
                 b13_pairs.append([j, k])
     for pair in b13_pairs:
         bound13[pair[0], pair[1]] = 13.0
@@ -156,19 +211,29 @@ def coulomb_scaling(rdmol: Chem.rdchem.Mol, coulomb14scale: float = 0.5) -> ndar
 
 
 class StorageHandler:
+    """
+    This is a handler to interact with data stored in PostgreSQL database.
+
+    Parameters
+    ----------
+    port: int
+        The port where PostgreSQL server is running. Default is `5432`.
+
+    url: str
+        The url in form of a string which contains the path to a running PostgreSQL server.
+
+    local_path: str
+        A local path to store temporary data.
+        Default is a directory named `tmp_storage` at current working directory.
+
+    """
     def __init__(
             self,
             port: str = "5432",
-            url: str = "postgresql://localhost:",
-            local_path: str = os.path.join(os.getcwd(), "tmp_storage"),
+        url: str = "postgresql://localhost:",
+        local_path: str = os.path.join(os.getcwd(), "tmp_storage"),
     ):
-        """
-        A function to handle Postgres Data Storage
 
-        :param port: Postgres server port, default 5432
-        :param url: Postgres URL path
-        :param local_path: Local directory to dump a temporary sqlite data file default tmp_storage
-        """
         self.port = port
         self.url = url
         self.postgres_prefix = f"{self.url}{self.port}"
@@ -184,8 +249,13 @@ class StorageHandler:
 
     def start(self):
         """
-        Start a server
-        :return: error message, output message
+        This method will start a server if currently there is no active server running on specified url.
+
+        Returns
+        -------
+        str
+            Return output and/or error messages
+
         """
 
         _ = subprocess.Popen(
@@ -218,12 +288,17 @@ class StorageHandler:
 
         self.start_err, self.start_out = ret.communicate()
 
-        return self.start_err, self.start_out
+        return self.start_out, self.start_err
 
     def stop(self):
         """
-        Stop a server
-        :return: error message, output message
+        This method will stop the server associated to this storage handler.
+
+        Returns
+        -------
+        str
+            Returns output and/or error messages
+
         """
 
         ret = subprocess.Popen(
@@ -237,16 +312,26 @@ class StorageHandler:
             stderr=subprocess.PIPE,
         )
 
-        stop_err, start_out = ret.communicate()
+        stop_err, stop_out = ret.communicate()
 
-        return stop_err, start_out
+        return stop_out, stop_err
 
     def session(self, database_name: str) -> session.Session:
         """
-        Create a session to handle data query
-        :param database_name: Name of database.
-        :return: Return a session to interact with the database
+        This is a handy method to create a sqlalchemy session for input database to use in querying data.
+
+        Parameters
+        ----------
+        database_name: str
+            The name of database to query
+
+        Returns
+        -------
+        session.Session
+            Returns a working Session to use in querying data.
+
         """
+
         this_database = f"{self.postgres_prefix}/{database_name}"
         my_engine = create_engine(this_database)
         if database_exists(my_engine.url):
@@ -261,46 +346,84 @@ class StorageHandler:
         return my_session
 
 
-def calc_rrmse(calc, ref):
+def calc_rrms(calc: ndarray, ref: ndarray):
+    r"""
+    A function to calculate relative root mean squared error, RRMS error, unit less
+
+    .. math::
+        RRMS =\sqrt{\frac{1}{N}\frac{\sum\limits_{i=1}^{N}(V_{qm,i}-V_{calc, i})^2}{\sum\limits_{i=1}^{N}(V_{qm, i})^2}}
+
+    Parameters
+    ----------
+    calc: ndarray
+        Calculated data
+
+    ref: ndarray
+        Reference data
+
+    Returns
+    -------
+    float
+        Returns the RRMS error value
+
     """
-    Relative root mean squared error, objective function, unit less
-    $RRMSE=\sqrt{\frac{1}{N}\frac{\sum\limits_{i=1}^{N}(V_{qm,i}-V_{calc, i})^2}{\sum\limits_{i=1}^{N}(V_{qm, i})^2}}$
-    :param calc: Calculation results
-    :param ref: Reference data
-    :return: RRMSE
-    """
-    """
-    unit less
-    """
+
     ndata = len(calc)
     ret = np.sqrt((np.sum(np.square(calc - ref)) / np.sum(np.square(calc))) / ndata)
     return ret
 
 
-def calc_rmse(calc, ref):
+def calc_rmse(calc: ndarray, ref: ndarray):
+    r"""
+    A function to calculate  root mean squared error, RMSE, unit is the same as input data
+
+    Parameters
+    ----------
+    calc: ndarray
+        Calculated data
+
+    ref: ndarray
+        Reference data
+
+    Returns
+    -------
+    float
+        Returns the RMSE value
+
     """
-    Relarive mean squared error
-    $RMSE=\sqrt{\frac{1}{N}\sum\limits_{i=1}^{N}(V_{qm,i}-V_{calc, i})^2}$
-    :param calc: Calculation results
-    :param ref: Reference data
-    :return: RMSE
-    """
+
     ret = np.sqrt(np.mean(np.square(calc - ref)))
     return ret
 
 
 def retrieve_records(
-        my_session: session.Session,
-        dataset: List = [],
-        sqlite_path: str = os.path.join(os.getcwd(), "tmp.sqlite"),
-) -> Tuple[List, List]:
+    my_session: session.Session,
+    dataset: List = [],
+    sqlite_path: str = os.path.join(os.getcwd(), "tmp.sqlite"),
+) -> Dict:
     """
-    Retrieve QM records from Postgres database and create openff.recharge MoleculeESPRecords
-    :param my_session: sqlalchemy session
-    :param dataset: a list of data
-    :param sqlite_path: A path to store temporary sqlite data
-    :return:
+    A function to retrieve data from the input session and create `MoleculeESPRecords` for use of
+    polarizability or charge fitting.
+
+    Parameters
+    ----------
+    my_session: session.Session
+        A session associated to the PostgreSQL database to look for data.
+
+    dataset: List
+        A list of SMILES string of molecules to look for.
+
+    sqlite_path: str
+        The path to create and storage a local copy of MoleculeESPRecords.
+
+    Returns
+    -------
+    dict
+        Returns a dictionary of retrieved records.
+        SMILES string as key, MoleculeESPRecord as value.
+
     """
+
     if os.path.exists(sqlite_path):
         os.remove(sqlite_path)
     else:
@@ -321,30 +444,55 @@ def retrieve_records(
     _ = [tmp.store(m) for m in models]
     smiles = tmp.list()
 
-    return models, smiles
+    ret = dict(zip(smiles, models))
 
-
-class PolarizabilityType(Enum):
-    Element: Literal = "Element"
-    SMIRNOFF: Literal = "SMIRNOFF"
+    return ret
 
 
 @dataclass
 class Polarizability:
     """
-    A dataclass to read/write polarizability parameters for parameterization
-    """
-    data_source: str
-    typing_scheme: Enum
+    A dataclass to read/write polarizability parameters
 
+    Parameters
+    ----------
+    data_source: str
+        The path of a `.csv` file which stores all polarizabilities.
+
+    Examples
+    --------
+    ``DefaultPol = Polarizability(data_source=resource_filename("factorpol", os.path.join("data", "alphas.example.csv")))``
+
+    """
+    data_source: str = resource_filename(
+        "factorpol", os.path.join("data", "alphas.example.csv")
+    )
 
     @property
     def data(self) -> pd.core.frame.DataFrame:
+        """
+        Store polarizability parameters ad pandas DataFrame
+
+        Returns
+        -------
+        pd.core.frame.DataFrame
+            Stored polarizability parameters as a pandas.DataFrame
+
+        """
         dt = pd.read_csv(self.data_source, index_col="Type")
         return dt
 
     @property
     def parameters(self) -> Dict:
+        """
+        Extra types and polarizabilities and store in a dictionary for easy parameterization.
+
+        Returns
+        -------
+        Dict
+            A dictionary of polarizabilities.
+
+        """
         pdt = self.data.dropna()
         ret = {
             k: Q_(v, "angstrom**3")
@@ -353,47 +501,64 @@ class Polarizability:
         return ret
 
 
-ETPol = Polarizability(
-    data_source=resource_filename(
-        "factorpol", os.path.join("data", "alphas_elements.csv")
-    ),
-    typing_scheme=PolarizabilityType.Element,
-)
-
-SmirnoffPol = Polarizability(
-    data_source=resource_filename(
-        "factorpol", os.path.join("data", "alphas_smirnoff.csv")
-    ),
-    typing_scheme=PolarizabilityType.SMIRNOFF,
-)
-
-
 @dataclass
 class BondChargeCorrections:
     """
-    A dataclass to read/write bond charge correction parameters for generating charges
-    """
+    A dataclass to read/write bond charge correction parameters for generating AM1-BCC-dPol charges
+
+    Parameters
+    ----------
     data_source: str
-    polarizability_type: enum.Enum
+        The path of a `.csv` file which stores all bond charge correction parameters.
+
+    Examples
+    --------
+    ``DefaultBccs = BondChargeCorrections(data_source=resource_filename("factorpol", os.path.join("data", "bcc_dPol.csv")))``
+
+    """
+    data_source: str = resource_filename(
+        "factorpol", os.path.join("data", "bcc_dPol.csv")
+    )
 
     @property
     def data(self) -> pd.core.frame.DataFrame:
+        """
+        Store BCC parameters as a pandas.DataFrame
+
+        Returns
+        -------
+        pd.core.frame.DataFrame
+            Stored BCC parameters ad pandas DataFrame
+
+        """
         dt = pd.read_csv(self.data_source, index_col="BCC SMIRKS")
         return dt
 
     @property
     def parameters(self) -> Dict:
-        if self.polarizability_type == PolarizabilityType.Element:
-            column_name = "ET-BCCs (elementary charge)"
-        elif self.polarizability_type == PolarizabilityType.SMIRNOFF:
-            column_name = "SF-BCCs (elementary charge)"
-        else:
-            raise NotImplementedError
-        ret = {k: v for k, v in zip(self.data.index, self.data[column_name])}
+        """
+        Extract types and BCC parameters and store in a dictionary for easy parameterization.
+
+        Returns
+        -------
+        Dict
+            A dictionary of BCCs.
+
+        """
+        ret = {k: v for k, v in zip(self.data.index, self.data["BCC value"])}
         return ret
 
     @property
     def recharge_collection(self) -> BCCCollection:
+        """
+        Create an `openff-recharge` BCC collection to generate AM1-BCC-dPol partial charges
+
+        Returns
+        -------
+        BCCCollection
+            Returned BCCCollection
+
+        """
         ret = BCCCollection(
             parameters=[
                 BCCParameter(smirks=sm, value=float(vs))
@@ -402,14 +567,3 @@ class BondChargeCorrections:
         )
         ret.aromaticity_model = aromaticity_model
         return ret
-
-
-FactorPolETBccs = BondChargeCorrections(
-    data_source=resource_filename("factorpol", os.path.join("data", "bcc_dPol.csv")),
-    polarizability_type=PolarizabilityType.Element,
-)
-
-FactorPolSFBccs = BondChargeCorrections(
-    data_source=resource_filename("factorpol", os.path.join("data", "bcc_dPol.csv")),
-    polarizability_type=PolarizabilityType.SMIRNOFF,
-)

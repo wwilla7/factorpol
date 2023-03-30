@@ -1,41 +1,54 @@
-"""This module is for parameterizing small molecules with typed polarizabilities, AM1-BCC-dPol partial charges,
-    and bonded parameters of Open Force Field - Sage or AMBER GAFF"""
+"""This module is for parameterizing small molecules withd polarizabilities, AM1-BCC-dPol partial charges,
+    and bonded parameters from Open Force Field Sage Force Field or AMBER GAFF"""
 
 import os
-import shutil
-
-import pint
-
-ureg = pint.UnitRegistry()
-Q_ = ureg.Quantity
 
 import numpy as np
 import parmed as pmd
+import pint
 from lxml import etree
 from openff.toolkit.topology import Molecule as off_Molecule
 from openff.toolkit.topology import Topology as off_Topology
+from openff.units import unit
 from openmm.app import ForceField
 from openmmforcefields.generators import (
     GAFFTemplateGenerator,
     SMIRNOFFTemplateGenerator,
 )
 from parmed.openmm.parameters import OpenMMParameterSet
-from openff.units import unit
-from factorpol.utilities import PolarizabilityType
+
 from factorpol.bcc_training import BccTrainer
-from enum import Enum
+from factorpol.utilities import BondChargeCorrections, Polarizability, smirnoff_labels
+
+ureg = pint.UnitRegistry()
+Q_ = ureg.Quantity
 
 
-def add_force(parent, Name, TypeName, c0, alpha):
+def add_force(parent: etree.Element, Name:str, TypeName: str, c0:float, alpha:float):
     """
-    Create a MPID Force for OpenMM to handle induced dipoles.
+    Create a MPID Force for OpenMM to compute electrostatics.
 
-    :param parent: Parent `ForceField` xml tree
-    :param Name: Atom name
-    :param TypeName: Atom type
-    :param c0: Permanent partial charge
-    :param alpha: Typed polarizability parameter
-    :return: ForceField xml parent tree
+    Parameters
+    ----------
+    parent: etree.Element
+        Parent `ForceField` xml tree
+
+    Name: str
+        Atom name
+
+    TypeName: str
+        Atom Type
+
+    c0: float
+        Permanent partial charge
+
+    alpha: float
+        Polarizability
+
+    Returns
+    -------
+    Returns force field xml parent tree
+
     """
 
     # Set Thole
@@ -59,26 +72,51 @@ def add_force(parent, Name, TypeName, c0, alpha):
     return parent
 
 
-def parameterize_molecule(smile: str, ff_name: str, polarizability_type: Enum, output_path: str):
+def parameterize_molecule(
+    smile: str,
+    ff_name: str,
+    polarizability: Polarizability,
+    BCCLibrary: BondChargeCorrections,
+    output_path: str,
+    off_forcefield: ForceField,
+) -> pint.Quantity:
     """
-    Parameterize a molecule with force field of choice
+    Parameterize a molecule with OpenFF sage or gaff force field
 
-    :param smile: SMILES string for molecule to parameterize
-    :param ff_name: sage or gaff
-    :param output_path: output directory to write ff.xml
-    :return: molecular dipole moment of this molecule
+    Parameters
+    ----------
+    smile: str
+        The SMILES string of molecule to parameterize
+
+    ff_name: str
+        gaff or sage
+
+    polarizability: Polarizability
+        Polarizability Library to parameterize molecules
+
+    BCCLibrary: BondChargeCorrections
+        BCC library to generate AM1-BCC-dPol charge
+
+    output_path: str
+        The path to write output files
+
+    off_forcefield: ForceField
+        The OpenFF Force Field to label molecule with SMIRNOFF patterns
+
+    Returns
+    -------
+    pint.Quantity
+        Returns calculated dipole moment of this molecule
+
     """
+
     off_mol = off_Molecule.from_smiles(smile)
     off_mol.generate_conformers(n_conformers=1)
     off_topology = off_Topology.from_molecules(off_mol)
     omm_vac_topology = off_topology.to_openmm()
-    qcmol = off_mol.to_qcschema()
-    symbol = qcmol.symbols
 
     if os.path.exists(output_path):
         pass
-        # shutil.rmtree(output_path)
-        # print("Output path exists. Remove everything.")
     else:
         os.makedirs(output_path)
 
@@ -99,22 +137,15 @@ def parameterize_molecule(smile: str, ff_name: str, polarizability_type: Enum, o
     charges = []
     alphas = []
 
-    if polarizability_type == PolarizabilityType.Element:
-        from factorpol.utilities import ETPol as PolLibrary
-        from factorpol.utilities import FactorPolETBccs as BCCdPolLibrary
-        patterns = symbol.copy()
+    patterns = smirnoff_labels(off_mol, off_forcefield=off_forcefield)
 
-    elif polarizability_type == PolarizabilityType.SMIRNOFF:
-        from factorpol.utilities import SmirnoffPol as PolLibrary
-        from factorpol.utilities import FactorPolSFBccs as BCCdPolLibrary
-        from factorpol.utilities import smirnoff_labels, ff
-        patterns = smirnoff_labels(off_mol, ff)
-
-    recharge_collection = BCCdPolLibrary.recharge_collection
+    recharge_collection = BCCLibrary.recharge_collection
 
     for idx, at in enumerate(pmd_structure.atoms):
         if idx < off_mol.n_atoms:
-            alphas.append(PolLibrary.parameters[patterns[idx]].to('nm**3').magnitude)
+            alphas.append(
+                polarizability.parameters[patterns[idx]].to("nm**3").magnitude
+            )
         else:
             pass
         charges.append(at.charge)
@@ -178,12 +209,21 @@ def parameterize_molecule(smile: str, ff_name: str, polarizability_type: Enum, o
     return mu
 
 
-def _calculate_dipoles(offmol: off_Molecule):
+def _calculate_dipoles(offmol: off_Molecule) -> pint.Quantity:
     """
     Calculate molecular dipole moment for a parameterized molecule (with partial charges)
-    :param offmol: OpenFF Molecule Object
-    :return: molecular dipole moment
+
+    Parameters
+    ----------
+    offmol: Molecule
+        OpenFF Molecule to calculate molecular dipole moment for
+
+    Returns
+    -------
+    pint.Quantity
+        Returns the molecular dipole moment of this molecule
     """
+
     charge = offmol.partial_charges.m_as("elementary_charge")
     geometry = offmol.conformers[0].m_as("angstrom")
     dipole = Q_(
