@@ -1,0 +1,34 @@
+name: factorpol
+channels:
+  - openeye
+  - psi4
+  - anaconda
+  - conda-forge
+dependencies:
+  - pip
+  - openff-toolkit
+  - openmm=7
+  - cudatoolkit=11
+  - swig
+  - numpy
+  - scipy
+  - jupyter
+  - python=3.9
+  - openeye-toolkits
+  - sqlalchemy
+  - lxml
+  - parmed
+  - openmmforcefields
+  - ambertools
+  - pint
+  - psi4
+  - qcengine
+  - qcelemental
+  - nglview
+  - ca-certificates
+  - certifi
+  - openssl
+  - psycopg2
+  - pip:
+      - sqlalchemy_utils
+      - ray
