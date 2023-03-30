@@ -448,7 +448,7 @@ class ChargeTrainer:
         r"""
         Compute molecular dipole moments with polarizability and permanent partial charges
 
-        .. math:: \mu = \sum{j=1}^{n}(q_j + \mu_\mathrm{ind, j})~\mathrm{r}_j
+        .. math:: \mu = \sum_{j=1}^{n}(q_j + \mu_\mathrm{ind, j})~\mathrm{r}_j
 
         Parameters
         ----------

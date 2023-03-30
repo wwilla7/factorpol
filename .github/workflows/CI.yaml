@@ -57,7 +57,7 @@ jobs:
           pytest -v --cov=factorpol --cov-report=xml --color=yes factorpol/tests/
 
       - name: CodeCov
-        uses: codecov/codecov-action@v1
+        uses: codecov/codecov-action@v3
         with:
           file: ./coverage.xml
           flags: unittests
