@@ -14,7 +14,9 @@ We present an efficient polarizable electrostatic model using direct polarizatio
 
 This toolkit and [documentation](https://factorpol.readthedocs.io/en/latest) are currently under continuous development and improvement.
 
-Some examples can be found here: [example](examples)
+Some examples can be found here: [example](examples).
+
+A post presentation can be found here: [poster](https://zenodo.org/record/7750889) [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.7750889.svg)](https://doi.org/10.5281/zenodo.7750889)
 
 References:
 
