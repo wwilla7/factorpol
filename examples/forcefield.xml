@@ -1,0 +1,60 @@
+<ForceField>
+  <Info>
+    <DateGenerated>2023-03-30</DateGenerated>
+  </Info>
+  <AtomTypes>
+    <Type element="C" name="C1" class="C1" mass="12.01078"/>
+    <Type element="O" name="O1" class="O1" mass="15.99943"/>
+    <Type element="H" name="H1" class="H1" mass="1.007947"/>
+    <Type element="H" name="H2" class="H2" mass="1.007947"/>
+  </AtomTypes>
+  <Residues>
+    <Residue name="UNK">
+      <Atom name="C1x" type="C1" charge="0.0"/>
+      <Atom name="O1x" type="O1" charge="0.0"/>
+      <Atom name="H1x" type="H1" charge="0.0"/>
+      <Atom name="H2x" type="H1" charge="0.0"/>
+      <Atom name="H3x" type="H1" charge="0.0"/>
+      <Atom name="H4x" type="H2" charge="0.0"/>
+      <Bond atomName1="C1x" atomName2="O1x"/>
+      <Bond atomName1="C1x" atomName2="H1x"/>
+      <Bond atomName1="C1x" atomName2="H2x"/>
+      <Bond atomName1="C1x" atomName2="H3x"/>
+      <Bond atomName1="O1x" atomName2="H4x"/>
+    </Residue>
+  </Residues>
+  <HarmonicBondForce>
+    <Bond class1="C1" class2="O1" length="0.14273439587159997" k="276118.879748549"/>
+    <Bond class1="C1" class2="H1" length="0.10938994926340001" k="309655.08432241395"/>
+    <Bond class1="O1" class2="H2" length="0.09716763312559001" k="454823.21217213676"/>
+  </HarmonicBondForce>
+  <HarmonicAngleForce>
+    <Angle class1="C1" class2="O1" class3="H2" angle="1.9260385591386002" k="544.6782754913279"/>
+    <Angle class1="O1" class2="C1" class3="H1" angle="2.034139115548445" k="445.22208650928565"/>
+    <Angle class1="H1" class2="C1" class3="H1" angle="2.017654719697188" k="408.161690475075"/>
+  </HarmonicAngleForce>
+  <PeriodicTorsionForce>
+    <Proper class1="H1" class2="C1" class3="O1" class4="H2" periodicity1="3" phase1="0.0" k1="1.2662416460753056"/>
+  </PeriodicTorsionForce>
+  <NonbondedForce coulomb14scale="0.83333" lj14scale="0.5">
+    <UseAttributeFromResidue name="charge"/>
+    <Atom class="C1" sigma="0.337953176162662" epsilon="0.45538911611061844"/>
+    <Atom class="O1" sigma="0.2997159987248637" epsilon="0.8764372596155737"/>
+    <Atom class="H1" sigma="0.2583225710839196" epsilon="0.068656285380106"/>
+    <Atom class="H2" sigma="0.05345392308836691" epsilon="5.157198260534728e-05"/>
+  </NonbondedForce>
+  <MPIDForce coulomb14scale="1.0">
+	<Multipole name="C1x" type="C1" c0="0.0216215"/>
+	<Polarize name="C1x" type="C1" polarizabilityXX="0.0014404853800194226" polarizabilityYY="0.0014404853800194226" polarizabilityZZ="0.0014404853800194226" thole="8.0"/>
+	<Multipole name="O1x" type="O1" c0="-0.4951345"/>
+	<Polarize name="O1x" type="O1" polarizabilityXX="0.0" polarizabilityYY="0.0" polarizabilityZZ="0.0" thole="0.0"/>
+	<Multipole name="H1x" type="H1" c0="0.0504567"/>
+	<Polarize name="H1x" type="H1" polarizabilityXX="0.00037713996174585117" polarizabilityYY="0.00037713996174585117" polarizabilityZZ="0.00037713996174585117" thole="8.0"/>
+	<Multipole name="H2x" type="H1" c0="0.0504567"/>
+	<Polarize name="H2x" type="H1" polarizabilityXX="0.00037713996174585117" polarizabilityYY="0.00037713996174585117" polarizabilityZZ="0.00037713996174585117" thole="8.0"/>
+	<Multipole name="H3x" type="H1" c0="0.0504567"/>
+	<Polarize name="H3x" type="H1" polarizabilityXX="0.00037713996174585117" polarizabilityYY="0.00037713996174585117" polarizabilityZZ="0.00037713996174585117" thole="8.0"/>
+	<Multipole name="H4x" type="H2" c0="0.3221429"/>
+	<Polarize name="H4x" type="H2" polarizabilityXX="0.00037713996174585117" polarizabilityYY="0.00037713996174585117" polarizabilityZZ="0.00037713996174585117" thole="8.0"/>
+	</MPIDForce>
+</ForceField>
