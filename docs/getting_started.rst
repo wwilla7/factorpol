@@ -1,6 +1,9 @@
 Getting Started
 ===============
 
-This page details how to get started with factorpol. 
 
-Please also navigate to :ref:`examples <example>`.
+.. include:: ../README.rst
+
+
+.. note::
+    If hyperlinks above do not work, please navigate to `example <https://github.com/wwilla7/factorpol/tree/main/examples>`_.
