@@ -17,7 +17,7 @@ from openff.toolkit import ForceField
 from openff.toolkit.topology import Molecule
 
 from factorpol.charge_training import ChargeTrainer
-from factorpol.utilities import flatten_a_list, Polarizability
+from factorpol.utilities import flatten_a_list, Polarizability, Q_
 
 original_bcc_collections = original_am1bcc_corrections()
 aromaticity_model = original_bcc_collections.aromaticity_model
@@ -161,16 +161,11 @@ class BccTrainer:
             assignment_matrix=assignment_matrix, bcc_collection=bcc_collection
         )
         ret = am1 + pbccs
-        return ret.reshape(-1)
+        return Q_(ret.reshape(-1), "e")
 
-    def training(self, polarizability: Polarizability) -> Dict:
+    def training(self) -> Dict:
         """
         Train new BCCs with polarizability against baseline QM ESPs
-
-        Parameters
-        ----------
-        polarizability: Polarizability
-            Input polarizability to train BCC-dPol with.
 
         Returns
         -------
@@ -204,7 +199,7 @@ class BccTrainer:
         objective_term = ESPObjectiveTerm.combine(*generators)
         dimension = objective_term.atom_charge_design_matrix.shape[0]
         polarization_objective_term = np.zeros(dimension)
-        am1_polarization = [_calc_polarization(c, polarizability) for c in self.charge_workers]
+        am1_polarization = [_calc_polarization(c, c.alphas) for c in self.charge_workers]
         # combine objective function
         for i1, m1 in enumerate(am1_polarization):
             s1 = m1.shape[0]

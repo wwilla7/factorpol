@@ -1,9 +1,9 @@
 factorpol
 ==============================
 [//]: # (Badges)
-[![codecov](https://codecov.io/gh/wwilla7/factorpol/branch/main/graph/badge.svg)](https://codecov.io/gh/wwilla7/factorpol/branch/main)
 [![Documentation Status](https://readthedocs.org/projects/factorpol/badge/?version=latest)](https://factorpol.readthedocs.io/en/latest/?badge=latest)
 [![GitHub Actions Build Status](https://github.com/wwilla7/factorpol/workflows/CI/badge.svg)](https://github.com/wwilla7/factorpol/actions?query=workflow%3ACI)
+[![codecov](https://codecov.io/gh/wwilla7/factorpol/branch/main/graph/badge.svg)](https://codecov.io/gh/wwilla7/factorpol/branch/main)
 
 
 A Fast Atom-Centered Typed Isotropic Ready-to-use Polarizable Electrostatic Model. Factor-Pol Model
@@ -14,8 +14,7 @@ We present an efficient polarizable electrostatic model using direct polarizatio
 
 This toolkit and [documentation](https://factorpol.readthedocs.io/en/latest) are currently under continuous development and improvement.
 
-
-
+Some examples can be found here: [example]([examples](examples))
 
 References:
 

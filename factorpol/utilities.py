@@ -34,7 +34,6 @@ Q_ = ureg.Quantity
 
 original_bcc_collections = original_am1bcc_corrections()
 aromaticity_model = original_bcc_collections.aromaticity_model
-ff = ForceField("openff-2.0.0.offxml")
 
 
 def pair_equivalent(pattern: List) -> ndarray:
@@ -224,14 +223,14 @@ class StorageHandler:
 
     local_path: str
         A local path to store temporary data.
-        Default is a directory named `tmp_storage` at current working directory.
+        Default is a directory named `data_tmp` at current working directory.
 
     """
     def __init__(
             self,
             port: str = "5432",
         url: str = "postgresql://localhost:",
-        local_path: str = os.path.join(os.getcwd(), "tmp_storage"),
+        local_path: str = os.path.join(os.getcwd(), "data_tmp"),
     ):
 
         self.port = port
@@ -531,7 +530,7 @@ class BondChargeCorrections:
             Stored BCC parameters ad pandas DataFrame
 
         """
-        dt = pd.read_csv(self.data_source, index_col="BCC SMIRKS")
+        dt = pd.read_csv(self.data_source, index_col="SMIRKS")
         return dt
 
     @property
@@ -545,7 +544,7 @@ class BondChargeCorrections:
             A dictionary of BCCs.
 
         """
-        ret = {k: v for k, v in zip(self.data.index, self.data["BCC value"])}
+        ret = {k: v for k, v in zip(self.data.index, self.data["value"])}
         return ret
 
     @property

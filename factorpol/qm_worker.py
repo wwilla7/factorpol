@@ -1,28 +1,29 @@
 """
     This module provide functionalities to generate reference QM ESPs and query existing ESPs data
 """
-import ray
+import logging
 import os
 import uuid
+from typing import Dict, List
+
+import numpy as np
+import ray
+from numpy import ndarray
 from openff.recharge.conformers import ConformerGenerator, ConformerSettings
 from openff.recharge.esp import ESPSettings
 from openff.recharge.esp.psi4 import Psi4ESPGenerator
 from openff.recharge.esp.storage import MoleculeESPRecord
-from openff.recharge.esp.storage.db import (
-    DBBase,
-    DBConformerRecord,
-    DBESPSettings,
-    DBGridSettings,
-    DBMoleculeRecord,
-    DBPCMSettings,
-)
+from openff.recharge.esp.storage.db import (DBBase, DBConformerRecord,
+                                            DBESPSettings, DBGridSettings,
+                                            DBMoleculeRecord, DBPCMSettings)
 from openff.recharge.grids import MSKGridSettings
 from openff.toolkit.topology import Molecule
-import numpy as np
-from numpy import ndarray
-from typing import List, Dict
 from sqlalchemy import select
 from sqlalchemy.orm.session import Session
+
+from factorpol.utilities import flatten_a_list
+
+logger = logging.getLogger(__name__)
 
 
 @ray.remote
@@ -187,11 +188,11 @@ class QWorker:
             wd = os.path.join(wd, subid)
 
         self.working_directory = wd
-        print(external_field)
+        logger.info(f"Generate QM ESPs with imposed electric field {external_field}.")
 
         workers = [
             _worker.remote(
-                mol=mol,
+                off_mol=mol,
                 method=method,
                 basis=basis,
                 wd=os.path.join(wd, f"mol{idx:02d}"),
@@ -204,6 +205,8 @@ class QWorker:
             for idx, mol in enumerate(dataset)
         ]
         ret = ray.get(workers)
+        if len(ret) > 2:
+            ret = flatten_a_list(ret)
         self.records.append(ret)
         return ret
 
@@ -292,7 +295,7 @@ def add_molecule(record, my_session):
     return smiles
 
 
-def _from_conformer_to_molecule(dbconformer: DBConformerRecord):
+def from_conformer_to_molecule(dbconformer: DBConformerRecord):
     """
     Reconstruct a conformer record to a molecule record.
 
@@ -325,7 +328,9 @@ def _from_conformer_to_molecule(dbconformer: DBConformerRecord):
     )
 
 
-def retrieve_by_external_field(my_session: Session, molecule: str, eefield: np.ndarray) -> List:
+def retrieve_by_external_field(
+    my_session: Session, molecule: str, eefield: np.ndarray
+) -> List:
     """
     Query records according to imposed electric field.
 
@@ -414,7 +419,7 @@ def rebuild_molecule(my_session: Session, molecule: str) -> Dict:
     ret = {}
     for idx, conformer in enumerate(molecules):
         ret[f"conf{idx:02d}"] = [
-            _from_conformer_to_molecule(r)
+            from_conformer_to_molecule(r)
             for r in retrieve_by_conformation(
                 my_session=my_session,
                 molecule=molecule,

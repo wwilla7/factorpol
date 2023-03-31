@@ -105,8 +105,8 @@ def parameterize_molecule(
 
     Returns
     -------
-    pint.Quantity
-        Returns calculated dipole moment of this molecule
+    Dict
+        Returns a string for generated force fields and molecular dipole moments
 
     """
 
@@ -154,7 +154,7 @@ def parameterize_molecule(
     np.savetxt(os.path.join(output_path, "am1bcc.dat"), charges, fmt="%10.7f")
 
     charges = np.round(
-        BccTrainer.generate_charges(off_mol, recharge_collection).reshape(-1), 7
+        BccTrainer.generate_charges(off_mol, recharge_collection).magnitude.reshape(-1), 7
     )
     np.savetxt(os.path.join(output_path, "am1bccdPol.dat"), charges, fmt="%10.7f")
 
@@ -206,7 +206,7 @@ def parameterize_molecule(
 
     mu = _calculate_dipoles(off_mol)
 
-    return mu
+    return {"forcefield.xml": xml, "DipoleMoment(D)": mu}
 
 
 def _calculate_dipoles(offmol: off_Molecule) -> pint.Quantity:

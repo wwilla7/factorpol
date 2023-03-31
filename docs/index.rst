@@ -13,17 +13,25 @@ Welcome to Factor-Pol's documentation!
    installation
    examples
 
-Modules Documentation
+Modules
 ======================
 
 .. toctree::
-   :maxdepth: 5
+   :maxdepth: 2
 
    modules
+
+.. toctree::
+   :maxdepth: 1
+
    api
+
 
 Indices and tables
 ==================
+
+.. toctree::
+   :maxdepth: 3
 
 * :ref:`genindex`
 * :ref:`modindex`

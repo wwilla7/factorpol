@@ -49,14 +49,14 @@ class AlphaWorker(ChargeTrainer):
         Scaling factor to scale Coulomb 1-4 interactions
 
     """
+
     def __init__(
-            self,
-            record: MoleculeESPRecord,
+        self,
+        record: MoleculeESPRecord,
         off_forcefield: ForceField,
         polarizability: Polarizability,
         coulomb14scale: float = 0.5,
     ):
-
         super().__init__(
             record=record,
             off_forcefield=off_forcefield,
@@ -64,7 +64,7 @@ class AlphaWorker(ChargeTrainer):
             coulomb14scale=coulomb14scale,
         )
 
-        self.alphas = polarizability
+        # self.alphas = polarizability
         self.coulomb14scale = coulomb14scale
         self.perturb_dipole = record.esp_settings.perturb_dipole
 
@@ -102,9 +102,11 @@ def _update_workers(
 
     """
 
-    alphas = Polarizability(data_source=parameters_path)
+    pols = Polarizability(data_source=parameters_path)
     for w in workers:
-        w.alphas = alphas
+        w.alphas = [
+            pols.parameters[p].to("bohr**3").magnitude for p in w.smirnoff_patterns
+        ]
         # w.coulomb14scale = coulomb14scale # remove comment if optimizing
     return workers
 
@@ -125,13 +127,13 @@ class AlphasTrainer:
         The path to the working directory
 
     """
+
     def __init__(
-            self,
-            workers: List[AlphaWorker],
+        self,
+        workers: List[AlphaWorker],
         prior: Polarizability,
         working_directory: str = os.path.join(os.getcwd(), "data_alphas"),
     ):
-
         self.coulomb14scale = None
         self.alphas_path = None
         self.working_directory = working_directory
@@ -273,18 +275,25 @@ class AlphaData:
     dataset: List[str]
         A list of molecules to query
 
+    off_forcefield: ForceField
+        An OpenFF Force Field to specify SMIRNOFF patterns
+
+    polarizability: Polarizability
+        A polarizability library
+
     num_cpus: int
         The number of process to initialize to generate relevant data
 
     """
+
     def __init__(
-            self,
-            database_name: str,
+        self,
+        database_name: str,
         dataset: List[str],
         off_forcefield: ForceField,
+        polarizability: Polarizability,
         num_cpus: int = 8,
     ):
-
         self.database_name = database_name
         self.dataset = dataset
         self.workers = []
@@ -296,6 +305,7 @@ class AlphaData:
             create_worker.remote(
                 database_name,
                 molecule=mol,
+                polarizability=polarizability,
                 off_forcefield=off_forcefield,
                 coulomb14scale=0.5,
             )

@@ -1,4 +1,3 @@
-Examples
-=============
+.. _example:
 
-This page includes some examples to use factorpol.
+.. include:: ../examples/README.rst
