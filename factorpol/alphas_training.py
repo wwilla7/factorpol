@@ -6,7 +6,7 @@ import copy
 import os
 import shutil
 from typing import List
-
+import logging
 import numpy as np
 import pint
 import ray
@@ -25,6 +25,8 @@ from factorpol.utilities import (
 
 ureg = pint.UnitRegistry()
 Q_ = ureg.Quantity
+
+logger = logging.getLogger(__name__)
 
 # elementary_charge/bohr to kcal/mol/elementary_charge
 au_to_kcal = 633.0917033332278
@@ -143,7 +145,7 @@ class AlphasTrainer:
         self.prior = [v.magnitude for v in prior.parameters.values()]
 
         if os.path.exists(self.working_directory):
-            print("Path exists, deleting")
+            logger.warning("Path exists, deleting")
             shutil.rmtree(self.working_directory)
         os.makedirs(self.working_directory, exist_ok=True)
         self.workers = workers

@@ -9,7 +9,7 @@ import time
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Dict, List, Literal, Tuple
-
+import logging
 import numpy as np
 import pandas as pd
 import pint
@@ -31,6 +31,8 @@ from sqlalchemy_utils import create_database, database_exists
 
 ureg = pint.UnitRegistry()
 Q_ = ureg.Quantity
+
+logger = logging.getLogger(__name__)
 
 original_bcc_collections = original_am1bcc_corrections()
 aromaticity_model = original_bcc_collections.aromaticity_model
@@ -334,9 +336,9 @@ class StorageHandler:
         this_database = f"{self.postgres_prefix}/{database_name}"
         my_engine = create_engine(this_database)
         if database_exists(my_engine.url):
-            print(f"Found database {my_engine.url}")
+            logger.info(f"Found database {my_engine.url}")
         else:
-            print(f"Creating new database at {my_engine.url}")
+            logger.info(f"Creating new database at {my_engine.url}")
             create_database(my_engine.url)
             DBBase.metadata.create_all(my_engine)
         my_session = sessionmaker(bind=my_engine, autoflush=False, autocommit=False)
