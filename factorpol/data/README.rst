@@ -8,7 +8,7 @@ This directory contains relevant data for FACTOR-Pol model.
 Examples
 --------
 
-`off_examples.offxml <off_examples.offxml>`_ : Example `OpenFF <https://github.com/openforcefield/openff-forcefields>`_ .offxml for determining SMIRNOFF polarizability types.
+`off_examples.offxml <off_examples.offxml>`_: Example `OpenFF <https://github.com/openforcefield/openff-forcefields/tree/main/openforcefields/offxml>`_.offxml for determining SMIRNOFF polarizability types.
 
 `alphas.example.csv <alphas.example.csv>`_: Example input file for determining SMIRNOFF polarizability parameters.
 

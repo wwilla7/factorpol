@@ -12,6 +12,7 @@ Welcome to Factor-Pol's documentation!
    getting_started
    installation
    examples
+   data
 
 Modules
 ======================
