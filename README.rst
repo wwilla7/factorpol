@@ -1,4 +1,4 @@
-factorpol
+Factor-Pol
 ==============================
 
 .. image:: https://readthedocs.org/projects/factorpol/badge/?version=latest
