@@ -22,5 +22,9 @@ API Documentation
    :members:
 .. automodule:: factorpol.alphas_training
    :members:
+   :private-members:
+
+.. autofunction:: factorpol.alphas_training.fit_alphas.remote
+
 .. automodule:: factorpol.parameterization
    :members:

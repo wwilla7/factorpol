@@ -473,9 +473,9 @@ def optimize_alphas(
     A function to optimize the polarizability of a dataset to reference QM ESPs
     Atomic units
 
-    Maths:
-    .. math::
-          \chi^2 = \sum\limits_{k=1}^{N_\textrm{conf}} \sum\limits_{l=1}^{6}  \sum\limits_{i=1}^{m}  \left( V_\textrm{diff,ikl} -\sum\limits_{j=1}^{n_k}\frac{\vect{\mu}_{\textrm{ind,jl}}\vect{r}_{ij}}{r_{ij}^3} \right)^2
+    Objective Function:
+
+    .. math:: {\chi}^2 = \sum_{k=1}^{N_{conf}} \sum_{l=1}^{6}\sum_{i=1}^{m} (V_{diff,ikl} -\sum_{j=1}^{n_k}\frac{{\mu}_{{ind,jl}}{r}_{ij}}{r_{ij}^3})^2
 
 
     Parameters
