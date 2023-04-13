@@ -386,6 +386,7 @@ def create_worker(
         workers.extend(this_conf)
     return workers
 
+
 @ray.remote(num_cpus=1)
 def fit_alphas(worker: AlphaWorker, global_opt=False) -> np.ndarray:
     r"""
@@ -415,7 +416,7 @@ def fit_alphas(worker: AlphaWorker, global_opt=False) -> np.ndarray:
     # cast a local electric field matrix
     efield = np.full_like(a=np.zeros((natoms, 3)), fill_value=external_field)
     vdiff = worker.vdiff
-    
+
     # find same polarizability types to constraint them to be the same
     tmp1 = defaultdict(list)
     for idx1, rank in enumerate(worker.smirnoff_patterns):
@@ -432,7 +433,7 @@ def fit_alphas(worker: AlphaWorker, global_opt=False) -> np.ndarray:
     alphas_pairs = np.concatenate(tmp2)
 
     ndim = worker.natoms + len(alphas_pairs)
-    
+
     # Distance matrix
     D_ij = np.multiply(worker.r_ij, worker.r_ij3)
 
@@ -440,14 +441,11 @@ def fit_alphas(worker: AlphaWorker, global_opt=False) -> np.ndarray:
     for k in range(natoms):
         for j in range(natoms):
             for i in range(worker.npoints):
-                matrix[k, j] += (
-                        np.square(external_field) * D_ij[k, i] * D_ij[j, i]
-                )
-    
+                matrix[k, j] += np.square(external_field) * D_ij[k, i] * D_ij[j, i]
+
     # force some polarizability types to have the same values
     matrix = np.linalg.norm(matrix, axis=-1)
     for idx, pair in enumerate(alphas_pairs):
-
         matrix[natoms + idx, pair[0]] = 1.0
         matrix[natoms + idx, pair[1]] = -1.0
         matrix[pair[0], natoms + idx] = 1.0
@@ -462,13 +460,15 @@ def fit_alphas(worker: AlphaWorker, global_opt=False) -> np.ndarray:
     vector = np.linalg.norm(vector, axis=-1)
     if global_opt == True:
         return matrix[:natoms, :natoms], vector[:natoms], worker.smirnoff_patterns
-    
+
     else:
         ret = np.linalg.solve(matrix, vector)
         return ret[:natoms]
 
 
-def optimize_alphas(worker_list: List[AlphaWorker], solved=True) -> np.ndarray:
+def optimize_alphas(
+    worker_list: List[AlphaWorker], solved=True, num_cpus=8
+) -> np.ndarray:
     r"""
     A function to optimize the polarizability of a dataset to reference QM ESPs
     Atomic units
@@ -477,7 +477,7 @@ def optimize_alphas(worker_list: List[AlphaWorker], solved=True) -> np.ndarray:
     .. math::
           \chi^2 = \sum\limits_{k=1}^{N_\textrm{conf}} \sum\limits_{l=1}^{6}  \sum\limits_{i=1}^{m}  \left( V_\textrm{diff,ikl} -\sum\limits_{j=1}^{n_k}\frac{\vect{\mu}_{\textrm{ind,jl}}\vect{r}_{ij}}{r_{ij}^3} \right)^2
 
-    
+
     Parameters
     -----------
     worker_list: List[AlphaWorker]
@@ -485,23 +485,31 @@ def optimize_alphas(worker_list: List[AlphaWorker], solved=True) -> np.ndarray:
     solved: bool
         Whether the polarizability is solved or not
 
+    num_cpus: int
+        Number of CPUs to use for ray workers
+
     Returns
-    ----------- 
+    -----------
     ndarray, ndarray, ndarray
         Returns matrix, vector, and polarizability types
         Returns the fitted polarizability alphas and objectives if solved is True
     """
-    
+
+    ray.shutdown()
+    ray.init(num_cpus=num_cpus)
+
+    logger.info("Fitting alphas with %s ray workers" % num_cpus)
+
     workers = [fit_alphas.remote(w, global_opt=True) for w in worker_list]
 
     # Get results from ray
     ret = ray.get(workers)
-    
+
     # Split the returns to matrix, vector, and polarizability types
     a_lst = [r[0] for r in ret]
     b_lst = [r[1] for r in ret]
     pol_lst = [r[-1] for r in ret]
-    
+
     # Calculate and pair the same polarizabilities
     pol_lst_flatten = flatten_a_list(pol_lst)
     pairs = pair_equivalent(pol_lst_flatten)
@@ -516,7 +524,10 @@ def optimize_alphas(worker_list: List[AlphaWorker], solved=True) -> np.ndarray:
         if idx == 0:
             final_a[:natoms, :natoms] = this_a
         else:
-            final_a[natoms*(idx-1)+natoms:natoms*idx+natoms, natoms*(idx-1)+natoms:natoms*idx+natoms] = this_a
+            final_a[
+                natoms * (idx - 1) + natoms : natoms * idx + natoms,
+                natoms * (idx - 1) + natoms : natoms * idx + natoms,
+            ] = this_a
 
     # Apply same alphas restraints
 
@@ -532,7 +543,10 @@ def optimize_alphas(worker_list: List[AlphaWorker], solved=True) -> np.ndarray:
 
     if solved == True:
         ret = nnls(final_a, final_b)
-        dt = {k: Q_(v, 'a0**3').to('angstrom**3') for k, v in zip(pol_lst_flatten, ret[0][:len(pol_lst_flatten)])}
+        dt = {
+            k: Q_(v, "a0**3").to("angstrom**3")
+            for k, v in zip(pol_lst_flatten, ret[0][: len(pol_lst_flatten)])
+        }
         return dt, ret[-1]
 
     else:
