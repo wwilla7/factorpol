@@ -387,9 +387,11 @@ def create_worker(
 
 
 def fit_alphas(worker: AlphaWorker) -> np.ndarray:
-    """
+    r"""
     Fit the polarizability of a molecule to reference QM ESPs
     Atomic units
+
+    .. math:: \sum_{j = 1}^{n}\sum_{i = 1}^{m}\frac{\alpha_j \mathrm{E}_\textrm{ext}}{r_{ij}r_{ik}} = \sum_{i = 1}^{m}\frac{V_i}{r_{ik}}
 
     Parameters
     -----------
