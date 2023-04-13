@@ -12,7 +12,7 @@ import pint
 import ray
 from openff.recharge.esp.storage import MoleculeESPRecord
 from openff.toolkit import ForceField
-from scipy.optimize import minimize
+from scipy.optimize import minimize, nnls
 from collections import defaultdict
 
 from factorpol.charge_training import ChargeTrainer
@@ -22,6 +22,7 @@ from factorpol.utilities import (
     flatten_a_list,
     Polarizability,
     StorageHandler,
+    pair_equivalent,
 )
 
 ureg = pint.UnitRegistry()
@@ -385,10 +386,11 @@ def create_worker(
         workers.extend(this_conf)
     return workers
 
-
-def fit_alphas(worker: AlphaWorker) -> np.ndarray:
+@ray.remote(num_cpus=1)
+def fit_alphas(worker: AlphaWorker, global_opt=False) -> np.ndarray:
     r"""
     Fit the polarizability of a molecule to reference QM ESPs
+    This is a remote function to be called by ray
     Atomic units
 
     .. math:: \sum_{j = 1}^{n}\sum_{i = 1}^{m}\frac{\alpha_j \mathrm{E^2}}{r_{ij}^3r_{ik}} = \sum_{i = 1}^{m}\frac{V_i \mathrm{E}}{r_{ik}}
@@ -398,21 +400,25 @@ def fit_alphas(worker: AlphaWorker) -> np.ndarray:
     worker: AlphaWorker
         The AlphaWorker that contains all ESP-fitting related data
 
+    global_opt: bool
+        Whether to perform global optimization
+
     Returns
     -----------
     ndarray
-        Returns the fitted polarizability alphas
+        Returns the fitted polarizability alphas if global_opt is False
+        Returns built matrix, vector, and polarizability types if global_opt is True
 
     """
-
+    natoms = worker.natoms
     external_field = worker.perturb_dipole
     # cast a local electric field matrix
-    efield = np.full_like(a=np.zeros((worker.natoms, 3)), fill_value=external_field)
+    efield = np.full_like(a=np.zeros((natoms, 3)), fill_value=external_field)
     vdiff = worker.vdiff
     
     # find same polarizability types to constraint them to be the same
     tmp1 = defaultdict(list)
-    for idx1, rank in enumerate(worker.alphas):
+    for idx1, rank in enumerate(worker.smirnoff_patterns):
         tmp1[rank].append(idx1)
 
     tmp2 = []
@@ -431,8 +437,8 @@ def fit_alphas(worker: AlphaWorker) -> np.ndarray:
     D_ij = np.multiply(worker.r_ij, worker.r_ij3)
 
     matrix = np.zeros((ndim, ndim, 3))
-    for k in range(worker.natoms):
-        for j in range(worker.natoms):
+    for k in range(natoms):
+        for j in range(natoms):
             for i in range(worker.npoints):
                 matrix[k, j] += (
                         np.square(external_field) * D_ij[k, i] * D_ij[j, i]
@@ -442,19 +448,92 @@ def fit_alphas(worker: AlphaWorker) -> np.ndarray:
     matrix = np.linalg.norm(matrix, axis=-1)
     for idx, pair in enumerate(alphas_pairs):
 
-        matrix[worker.natoms + idx, pair[0]] = 1.0
-        matrix[worker.natoms + idx, pair[1]] = -1.0
-        matrix[pair[0], worker.natoms + idx] = 1.0
-        matrix[pair[1], worker.natoms + idx] = -1.0
+        matrix[natoms + idx, pair[0]] = 1.0
+        matrix[natoms + idx, pair[1]] = -1.0
+        matrix[pair[0], natoms + idx] = 1.0
+        matrix[pair[1], natoms + idx] = -1.0
 
     vector = np.zeros((ndim, 3))
 
-    for k in range(worker.natoms):
+    for k in range(natoms):
         for i in range(worker.npoints):
             vector[k] += external_field * D_ij[k, i] * vdiff[i]
 
     vector = np.linalg.norm(vector, axis=-1)
+    if global_opt == True:
+        return matrix[:natoms, :natoms], vector[:natoms], worker.smirnoff_patterns
+    
+    else:
+        ret = np.linalg.solve(matrix, vector)
+        return ret[:natoms]
 
-    ret = np.linalg.solve(matrix, vector)
 
-    return ret[:worker.natoms]
+def optimize_alphas(worker_list: List[AlphaWorker], solved=True) -> np.ndarray:
+    r"""
+    A function to optimize the polarizability of a dataset to reference QM ESPs
+    Atomic units
+
+    Maths:
+    .. math::
+          \chi^2 = \sum\limits_{k=1}^{N_\textrm{conf}} \sum\limits_{l=1}^{6}  \sum\limits_{i=1}^{m}  \left( V_\textrm{diff,ikl} -\sum\limits_{j=1}^{n_k}\frac{\vect{\mu}_{\textrm{ind,jl}}\vect{r}_{ij}}{r_{ij}^3} \right)^2
+
+    
+    Parameters
+    -----------
+    worker_list: List[AlphaWorker]
+
+    solved: bool
+        Whether the polarizability is solved or not
+
+    Returns
+    ----------- 
+    ndarray, ndarray, ndarray
+        Returns matrix, vector, and polarizability types
+        Returns the fitted polarizability alphas and objectives if solved is True
+    """
+    
+    workers = [fit_alphas.remote(w, global_opt=True) for w in worker_list]
+
+    # Get results from ray
+    ret = ray.get(workers)
+    
+    # Split the returns to matrix, vector, and polarizability types
+    a_lst = [r[0] for r in ret]
+    b_lst = [r[1] for r in ret]
+    pol_lst = [r[-1] for r in ret]
+    
+    # Calculate and pair the same polarizabilities
+    pol_lst_flatten = flatten_a_list(pol_lst)
+    pairs = pair_equivalent(pol_lst_flatten)
+    n_same_alphas = len(pairs)
+    ndim = np.sum([m.natoms for m in worker_list]) + n_same_alphas
+
+    # Initializing a new matrix to do the optimization
+    final_a = np.zeros((ndim, ndim))
+
+    for idx, this_a in enumerate(a_lst):
+        natoms = this_a.shape[0]
+        if idx == 0:
+            final_a[:natoms, :natoms] = this_a
+        else:
+            final_a[natoms*(idx-1)+natoms:natoms*idx+natoms, natoms*(idx-1)+natoms:natoms*idx+natoms] = this_a
+
+    # Apply same alphas restraints
+
+    for idx, pair in enumerate(pairs):
+        this_idx = (ndim - n_same_alphas) + idx
+        final_a[this_idx, pair[0]] = 1.0
+        final_a[this_idx, pair[1]] = -1.0
+
+        final_a[pair[0], this_idx] = 1.0
+        final_a[pair[1], this_idx] = -1.0
+
+    final_b = np.append(np.concatenate(b_lst), np.zeros(n_same_alphas))
+
+    if solved == True:
+        ret = nnls(final_a, final_b)
+        dt = {k: Q_(v, 'a0**3').to('angstrom**3') for k, v in zip(pol_lst_flatten, ret[0][:len(pol_lst_flatten)])}
+        return dt, ret[-1]
+
+    else:
+        return final_a, final_b, set(pol_lst_flatten)
