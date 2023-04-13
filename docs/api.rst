@@ -6,6 +6,8 @@ API Documentation
    :members:
 .. autoclass:: factorpol.alphas_training.AlphaData
    :members:
+.. autoclass:: factorpol.alphas_training.AlphaWorker
+   :members:
 .. autoclass:: factorpol.bcc_training.BccTrainer
    :members:
 .. autoclass:: factorpol.charge_training.ChargeTrainer
@@ -18,4 +20,7 @@ API Documentation
    :members:
 .. automodule:: factorpol.qm_worker
    :members:
-
+.. automodule:: factorpol.alphas_training
+   :members:
+.. automodule:: factorpol.parameterization
+   :members:

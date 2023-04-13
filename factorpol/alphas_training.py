@@ -13,6 +13,7 @@ import ray
 from openff.recharge.esp.storage import MoleculeESPRecord
 from openff.toolkit import ForceField
 from scipy.optimize import minimize
+from collections import defaultdict
 
 from factorpol.charge_training import ChargeTrainer
 from factorpol.qm_worker import rebuild_molecule
@@ -383,3 +384,75 @@ def create_worker(
 
         workers.extend(this_conf)
     return workers
+
+
+def fit_alphas(worker: AlphaWorker) -> np.ndarray:
+    """
+    Fit the polarizability of a molecule to reference QM ESPs
+    Atomic units
+
+    Parameters
+    -----------
+    worker: AlphaWorker
+        The AlphaWorker that contains all ESP-fitting related data
+
+    Returns
+    -----------
+    ndarray
+        Returns the fitted polarizability alphas
+
+    """
+
+    external_field = worker.perturb_dipole
+    # cast a local electric field matrix
+    efield = np.full_like(a=np.zeros((worker.natoms, 3)), fill_value=external_field)
+    vdiff = worker.vdiff
+    
+    # find same polarizability types to constraint them to be the same
+    tmp1 = defaultdict(list)
+    for idx1, rank in enumerate(worker.alphas):
+        tmp1[rank].append(idx1)
+
+    tmp2 = []
+    tmp3 = {}
+
+    for k, v in tmp1.items():
+        tmp3[k] = v[0]
+        if len(v) > 1:
+            tmp2.append([[v[i], v[i + 1]] for i in range(len(v) - 1)])
+
+    alphas_pairs = np.concatenate(tmp2)
+
+    ndim = worker.natoms + len(alphas_pairs)
+    
+    # Distance matrix
+    D_ij = np.multiply(worker.r_ij, worker.r_ij3)
+
+    matrix = np.zeros((ndim, ndim, 3))
+    for k in range(worker.natoms):
+        for j in range(worker.natoms):
+            for i in range(worker.npoints):
+                matrix[k, j] += (
+                        np.square(external_field) * D_ij[k, i] * D_ij[j, i]
+                )
+    
+    # force some polarizability types to have the same values
+    matrix = np.linalg.norm(matrix, axis=-1)
+    for idx, pair in enumerate(alphas_pairs):
+
+        matrix[worker.natoms + idx, pair[0]] = 1.0
+        matrix[worker.natoms + idx, pair[1]] = -1.0
+        matrix[pair[0], worker.natoms + idx] = 1.0
+        matrix[pair[1], worker.natoms + idx] = -1.0
+
+    vector = np.zeros((ndim, 3))
+
+    for k in range(worker.natoms):
+        for i in range(worker.npoints):
+            vector[k] += external_field * D_ij[k, i] * vdiff[i]
+
+    vector = np.linalg.norm(vector, axis=-1)
+
+    ret = np.linalg.solve(matrix, vector)
+
+    return ret[:worker.natoms]
