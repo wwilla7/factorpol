@@ -1,5 +1,7 @@
 """
 A module to generate partial charges to use with typed polarizabilities.
+
+This module contains a class ChargeTrainer that contains all information needed to do ESP-fitting related calculations.
 """
 
 

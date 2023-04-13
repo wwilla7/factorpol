@@ -1,5 +1,7 @@
 """
 This module provides functionalities to derive and obtain typed polarizabilities from QM reference data.
+
+This module uses `Ray` to distribute the optimization process. The optimization process is performed by `scipy.optimize.minimize` with `Nelder-Mead` method.
 """
 
 import copy

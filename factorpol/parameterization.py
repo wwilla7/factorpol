@@ -1,4 +1,4 @@
-"""This module is for parameterizing small molecules withd polarizabilities, AM1-BCC-dPol partial charges,
+"""This module is for parameterizing small molecules with typed polarizabilities, AM1-BCC-dPol partial charges,
     and bonded parameters from Open Force Field Sage Force Field or AMBER GAFF"""
 
 import os

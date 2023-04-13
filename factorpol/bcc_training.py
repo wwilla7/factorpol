@@ -1,5 +1,8 @@
 """
 This module provides functionalities to train BCC-dPol parameters and generate AM1-BCC-dPol partial charges
+
+This module is based on `openff-recharge` and `factorpol` packages.
+
 """
 from typing import List, Dict
 

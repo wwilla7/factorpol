@@ -1,5 +1,7 @@
 """
     This module provide functionalities to generate reference QM ESPs and query existing ESPs data
+
+    This module is designed to be used with `Ray` to distribute QM calculations.
 """
 import logging
 import os
