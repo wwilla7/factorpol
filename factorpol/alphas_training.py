@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 
 # elementary_charge/bohr to kcal/mol/elementary_charge
 au_to_kcal = 633.0917033332278
+a03_to_ang3 = Q_(1, "bohr**3").to("angstrom**3").magnitude
 
 
 class AlphaWorker(ChargeTrainer):
@@ -370,17 +371,18 @@ def create_worker(
         base = None
         this_conf = []
         for r in records:
-            worker = AlphaWorker(
-                record=r,
-                off_forcefield=off_forcefield,
-                polarizability=polarizability,
-                coulomb14scale=coulomb14scale,
-            )
-            if np.allclose(np.zeros(3), r.esp_settings.perturb_dipole):
-                base = copy.deepcopy(worker)
-                base.vdiff = np.zeros(base.npoints)
-            else:
-                this_conf.append(worker)
+            if len(r.esp) > 2000:
+                worker = AlphaWorker(
+                    record=r,
+                    off_forcefield=off_forcefield,
+                    polarizability=polarizability,
+                    coulomb14scale=coulomb14scale,
+                )
+                if np.allclose(np.zeros(3), r.esp_settings.perturb_dipole):
+                    base = copy.deepcopy(worker)
+                    base.vdiff = np.zeros(base.npoints)
+                else:
+                    this_conf.append(worker)
 
         for w in this_conf:
             w.vdiff = w.esp_values - base.esp_values
@@ -396,7 +398,7 @@ def fit_alphas(worker: AlphaWorker, global_opt=False) -> np.ndarray:
     This is a remote function to be called by ray
     Atomic units
 
-    .. math:: \sum_{j = 1}^{n}\sum_{i = 1}^{m}\frac{\alpha_j \mathrm{E^2}}{r_{ij}^3r_{ik}} = \sum_{i = 1}^{m}\frac{V_i \mathrm{E}}{r_{ik}}
+    .. math:: \sum_{j = 1}^{n}\sum_{i = 1}^{m}\frac{\alpha_j \mathrm{r}_{ij} \mathrm{E^2}}{r_{ij}^3r_{ik}} = \sum_{i = 1}^{m}\frac{V_i \mathrm{E} \mathrm{r}_{ij}}{r_{ik} r_{ij}^3}
 
     Parameters
     -----------
@@ -529,6 +531,163 @@ def optimize_alphas(
             final_a[
                 natoms * (idx - 1) + natoms : natoms * idx + natoms,
                 natoms * (idx - 1) + natoms : natoms * idx + natoms,
+            ] = this_a
+
+    # Apply same alphas restraints
+
+    for idx, pair in enumerate(pairs):
+        this_idx = (ndim - n_same_alphas) + idx
+        final_a[this_idx, pair[0]] = 1.0
+        final_a[this_idx, pair[1]] = -1.0
+
+        final_a[pair[0], this_idx] = 1.0
+        final_a[pair[1], this_idx] = -1.0
+
+    final_b = np.append(np.concatenate(b_lst), np.zeros(n_same_alphas))
+
+    if solved == True:
+        ret = nnls(final_a, final_b)
+        dt = {
+            k: Q_(v, "a0**3").to("angstrom**3")
+            for k, v in zip(pol_lst_flatten, ret[0][: len(pol_lst_flatten)])
+        }
+        return dt, ret[-1]
+
+    else:
+        return final_a, final_b, set(pol_lst_flatten)
+
+
+@ray.remote(num_cpus=1)
+def fit_alphas_fast(worker: AlphaWorker, global_opt=False) -> np.ndarray:
+    r"""
+    ** This method is extremely experimental and not recommended for production use **
+    
+    This implementation is not efficient enough and needs to be improved.
+
+    Fit the polarizability of a molecule to reference QM ESPs with a fast method
+
+    This is a remote function to be called by ray
+
+    Atomic units
+
+    Parameters
+    -----------
+    worker: AlphaWorker
+        The AlphaWorker that contains all ESP-fitting related data
+
+    global_opt: bool
+        Whether to perform global optimization
+
+    Returns
+    -----------
+    ndarray
+        Returns the fitted polarizability alphas if global_opt is False
+        Returns built matrix, vector, and polarizability types if global_opt is True
+
+    """
+    natoms = worker.natoms
+    external_field = worker.perturb_dipole
+    vdiff = worker.vdiff
+
+    param_dict = defaultdict(list)
+    for idx1, rank in enumerate(worker.smirnoff_patterns):
+        param_dict[rank].append(idx1)
+
+    ndim = len(param_dict)
+    A = np.zeros((ndim, ndim, 3))
+    B = np.zeros((ndim, 3))
+
+    D_ij = np.multiply(worker.r_ij, worker.r_ij3)
+
+    for k, (_, alphas_k) in enumerate(param_dict.items()):
+        B[k] = (
+            np.sum(D_ij[alphas_k].sum(axis=0) * vdiff.reshape(-1, 1)) * external_field
+        )
+
+        for l, (_, alphas_l) in enumerate(param_dict.items()):
+            A[k, l] = (
+                (D_ij[alphas_k].sum(axis=0) * D_ij[alphas_l].sum(axis=0)).sum(axis=0)
+                * external_field
+                * external_field
+            )
+
+    A = np.linalg.norm(A, axis=-1)
+    B = np.linalg.norm(B, axis=-1)
+
+    if global_opt == True:
+        return A, B, param_dict.keys()
+
+    else:
+        # ret = np.linalg.solve(A, B)
+        ret = nnls(A, B)[0]
+        return {k: v * a03_to_ang3 for k, v in zip(param_dict.keys(), ret)}
+
+
+def optimize_alphas_fast(
+    worker_list: List[AlphaWorker], solved=True, num_cpus=8
+) -> np.ndarray:
+    r"""
+
+    ** This method is extremely experimental and not recommended for production use **
+
+    This implementation is not efficient enough and needs to be improved.
+
+    A fast method to optimize the polarizability of a dataset to reference QM ESPs
+
+    Atomic units
+
+    Objective Function:
+
+
+    Parameters
+    -----------
+    worker_list: List[AlphaWorker]
+
+    solved: bool
+        Whether the polarizability is solved or not
+
+    num_cpus: int
+        Number of CPUs to use for ray workers
+
+    Returns
+    -----------
+    ndarray, ndarray, ndarray
+        Returns matrix, vector, and polarizability types
+        Returns the fitted polarizability alphas and objectives if solved is True
+    """
+
+    ray.shutdown()
+    ray.init(num_cpus=num_cpus)
+
+    logger.info("Fitting alphas with %s ray workers" % num_cpus)
+
+    workers = [fit_alphas_fast.remote(w, global_opt=True) for w in worker_list]
+
+    # Get results from ray
+    ret = ray.get(workers)
+
+    # Split the returns to matrix, vector, and polarizability types
+    a_lst = [r[0] for r in ret]
+    b_lst = [r[1] for r in ret]
+    pol_lst = [r[-1] for r in ret]
+
+    # Calculate and pair the same polarizabilities
+    pol_lst_flatten = flatten_a_list(pol_lst)
+    pairs = pair_equivalent(pol_lst_flatten)
+    n_same_alphas = len(pairs)
+    ndim = np.sum([len(m) for m in a_lst]) + n_same_alphas
+
+    # Initializing a new matrix to do the optimization
+    final_a = np.zeros((ndim, ndim))
+
+    for idx, this_a in enumerate(a_lst):
+        nalphas = this_a.shape[0]
+        if idx == 0:
+            final_a[:nalphas, :nalphas] = this_a
+        else:
+            final_a[
+                nalphas * (idx - 1) + nalphas : nalphas * idx + nalphas,
+                nalphas * (idx - 1) + nalphas : nalphas * idx + nalphas,
             ] = this_a
 
     # Apply same alphas restraints
