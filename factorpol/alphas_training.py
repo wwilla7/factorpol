@@ -10,6 +10,7 @@ import shutil
 from typing import List
 import logging
 import numpy as np
+import scipy
 import pint
 import ray
 from openff.recharge.esp.storage import MoleculeESPRecord
@@ -441,6 +442,7 @@ def fit_alphas(worker: AlphaWorker, global_opt=False) -> np.ndarray:
     D_ij = np.multiply(worker.r_ij, worker.r_ij3)
 
     matrix = np.zeros((ndim, ndim, 3))
+    # This ugly loop is to make sure the maths is correct
     for k in range(natoms):
         for j in range(natoms):
             for i in range(worker.npoints):
@@ -461,12 +463,13 @@ def fit_alphas(worker: AlphaWorker, global_opt=False) -> np.ndarray:
             vector[k] += external_field * D_ij[k, i] * vdiff[i]
 
     vector = np.linalg.norm(vector, axis=-1)
-    if global_opt == True:
+
+    if global_opt:
         return matrix[:natoms, :natoms], vector[:natoms], worker.smirnoff_patterns
 
     else:
         ret = np.linalg.solve(matrix, vector)
-        return ret[:natoms]
+        return {k: v * a03_to_ang3 for k, v in zip(tmp1.keys(), ret[:natoms])}
 
 
 def optimize_alphas(
@@ -517,20 +520,14 @@ def optimize_alphas(
     pol_lst_flatten = flatten_a_list(pol_lst)
     pairs = pair_equivalent(pol_lst_flatten)
     n_same_alphas = len(pairs)
-    ndim = np.sum([m.natoms for m in worker_list]) + n_same_alphas
+    ndim0 = np.sum([m.natoms for m in worker_list])
+    ndim = ndim0 + n_same_alphas
 
     # Initializing a new matrix to do the optimization
     final_a = np.zeros((ndim, ndim))
 
-    for idx, this_a in enumerate(a_lst):
-        natoms = this_a.shape[0]
-        if idx == 0:
-            final_a[:natoms, :natoms] = this_a
-        else:
-            final_a[
-                natoms * (idx - 1) + natoms : natoms * idx + natoms,
-                natoms * (idx - 1) + natoms : natoms * idx + natoms,
-            ] = this_a
+    design = scipy.linalg.block_diag(*a_lst)
+    final_a[:ndim0, :ndim0] = design
 
     # Apply same alphas restraints
 
@@ -544,13 +541,14 @@ def optimize_alphas(
 
     final_b = np.append(np.concatenate(b_lst), np.zeros(n_same_alphas))
 
-    if solved == True:
-        ret = nnls(final_a, final_b)
+    if solved:
+        # ret = nnls(final_a, final_b)
+        ret = np.linalg.solve(final_a, final_b)
         dt = {
             k: Q_(v, "a0**3").to("angstrom**3")
-            for k, v in zip(pol_lst_flatten, ret[0][: len(pol_lst_flatten)])
+            for k, v in zip(pol_lst_flatten, ret[: len(pol_lst_flatten)])
         }
-        return dt, ret[-1]
+        return dt
 
     else:
         return final_a, final_b, set(pol_lst_flatten)
@@ -560,8 +558,6 @@ def optimize_alphas(
 def fit_alphas_fast(worker: AlphaWorker, global_opt=False) -> np.ndarray:
     r"""
     ** This method is extremely experimental and not recommended for production use **
-    
-    This implementation is not efficient enough and needs to be improved.
 
     Fit the polarizability of a molecule to reference QM ESPs with a fast method
 
@@ -586,38 +582,30 @@ def fit_alphas_fast(worker: AlphaWorker, global_opt=False) -> np.ndarray:
     """
     natoms = worker.natoms
     external_field = worker.perturb_dipole
-    vdiff = worker.vdiff
+    vdiff = worker.vdiff.reshape(-1, 1)
 
     param_dict = defaultdict(list)
     for idx1, rank in enumerate(worker.smirnoff_patterns):
         param_dict[rank].append(idx1)
 
     ndim = len(param_dict)
-    A = np.zeros((ndim, ndim, 3))
-    B = np.zeros((ndim, 3))
+    A = np.zeros((ndim, ndim))
+    B = np.zeros((ndim))
 
-    D_ij = np.multiply(worker.r_ij, worker.r_ij3)
+    D_ijE = worker.r_ij * worker.r_ij3 * external_field
 
     for k, (_, alphas_k) in enumerate(param_dict.items()):
-        B[k] = (
-            np.sum(D_ij[alphas_k].sum(axis=0) * vdiff.reshape(-1, 1)) * external_field
-        )
+        Cik = D_ijE[alphas_k].sum(axis=0)
+        B[k] = np.einsum("ic,ik->", Cik, vdiff)
 
         for l, (_, alphas_l) in enumerate(param_dict.items()):
-            A[k, l] = (
-                (D_ij[alphas_k].sum(axis=0) * D_ij[alphas_l].sum(axis=0)).sum(axis=0)
-                * external_field
-                * external_field
-            )
+            Cil = D_ijE[alphas_l].sum(axis=0)
+            A[k, l] = np.einsum("ic,ik->", Cil, Cik)
 
-    A = np.linalg.norm(A, axis=-1)
-    B = np.linalg.norm(B, axis=-1)
-
-    if global_opt == True:
+    if global_opt:
         return A, B, param_dict.keys()
 
     else:
-        # ret = np.linalg.solve(A, B)
         ret = nnls(A, B)[0]
         return {k: v * a03_to_ang3 for k, v in zip(param_dict.keys(), ret)}
 
@@ -674,20 +662,14 @@ def optimize_alphas_fast(
     pol_lst_flatten = flatten_a_list(pol_lst)
     pairs = pair_equivalent(pol_lst_flatten)
     n_same_alphas = len(pairs)
-    ndim = np.sum([len(m) for m in a_lst]) + n_same_alphas
+    ndim0 = np.sum([len(m) for m in a_lst])
+    ndim = ndim0 + n_same_alphas
 
     # Initializing a new matrix to do the optimization
     final_a = np.zeros((ndim, ndim))
 
-    for idx, this_a in enumerate(a_lst):
-        nalphas = this_a.shape[0]
-        if idx == 0:
-            final_a[:nalphas, :nalphas] = this_a
-        else:
-            final_a[
-                nalphas * (idx - 1) + nalphas : nalphas * idx + nalphas,
-                nalphas * (idx - 1) + nalphas : nalphas * idx + nalphas,
-            ] = this_a
+    design = scipy.linalg.block_diag(*a_lst)
+    final_a[:ndim0, :ndim0] = design
 
     # Apply same alphas restraints
 
@@ -701,13 +683,14 @@ def optimize_alphas_fast(
 
     final_b = np.append(np.concatenate(b_lst), np.zeros(n_same_alphas))
 
-    if solved == True:
-        ret = nnls(final_a, final_b)
+    if solved:
+        ret = np.linalg.solve(final_a, final_b)
+        # ret = nnls(final_a, final_b)
         dt = {
             k: Q_(v, "a0**3").to("angstrom**3")
-            for k, v in zip(pol_lst_flatten, ret[0][: len(pol_lst_flatten)])
+            for k, v in zip(pol_lst_flatten, ret[: len(pol_lst_flatten)])
         }
-        return dt, ret[-1]
+        return dt
 
     else:
         return final_a, final_b, set(pol_lst_flatten)
