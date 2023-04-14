@@ -371,18 +371,17 @@ def create_worker(
         base = None
         this_conf = []
         for r in records:
-            if len(r.esp) > 2000:
-                worker = AlphaWorker(
-                    record=r,
-                    off_forcefield=off_forcefield,
-                    polarizability=polarizability,
-                    coulomb14scale=coulomb14scale,
-                )
-                if np.allclose(np.zeros(3), r.esp_settings.perturb_dipole):
-                    base = copy.deepcopy(worker)
-                    base.vdiff = np.zeros(base.npoints)
-                else:
-                    this_conf.append(worker)
+            worker = AlphaWorker(
+                record=r,
+                off_forcefield=off_forcefield,
+                polarizability=polarizability,
+                coulomb14scale=coulomb14scale,
+            )
+            if np.allclose(np.zeros(3), r.esp_settings.perturb_dipole):
+                base = copy.deepcopy(worker)
+                base.vdiff = np.zeros(base.npoints)
+            else:
+                this_conf.append(worker)
 
         for w in this_conf:
             w.vdiff = w.esp_values - base.esp_values
