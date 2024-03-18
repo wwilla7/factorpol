@@ -17,9 +17,17 @@ Factor-Pol
 
 A Fast Atom-Centered Typed Isotropic Ready-to-use Polarizable Electrostatic Model. Factor-Pol Model
 
+The latest implementation lives at `dpolfit <https://github.com/wwilla7/dpolfit>`_.
 
-We present an efficient polarizable electrostatic model using direct polarization[1], SMIRNOFF[2] typed polarizabilities, and a new AM1-BCC[3,4]-style charge model for improved electrostatics in molecular dynamics (MD) simulations.
+The model is described at: 
 
+**A Fast, Convenient, Polarizable Electrostatic Model for Molecular Dynamics**
+
+    Liangyue Wang, Michael Schauperl, David L. Mobley, Christopher Bayly, and Michael K. Gilson
+
+    Journal of Chemical Theory and Computation 2024 20 (3), 1293-1305 `DOI: 10.1021/acs.jctc.3c01171 <https://pubs.acs.org/doi/10.1021/acs.jctc.3c01171>`_.
+
+We present an efficient polarizable electrostatic model using direct polarization[1], OpenFF SMIRNOFF[2] typed polarizabilities, and a new AM1-BCC[3,4]-style charge model for improved electrostatics in molecular dynamics (MD) simulations.
 
 This toolkit and `documentation <https://factorpol.readthedocs.io/en/latest>`_ are currently under continuous development and improvement.
 
